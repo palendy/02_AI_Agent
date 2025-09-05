@@ -1,0 +1,33 @@
+# SRS Generation Agent Requirements
+# Based on 99_RAG_Note course materials dependencies
+
+# Core LangChain and LangGraph
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.20
+langchain-core>=0.1.20
+langgraph>=0.0.30
+
+# Document processing
+pypdf>=4.0.0
+python-docx>=1.1.0
+
+# Vector stores and embeddings
+faiss-cpu>=1.7.4
+chromadb>=0.4.0
+
+# Text processing
+tiktoken>=0.5.0
+unstructured>=0.11.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# Development and testing
+pytest>=7.4.0
+jupyter>=1.0.0
+
+# Optional: Enhanced document loaders
+beautifulsoup4>=4.12.0
+requests>=2.31.0
