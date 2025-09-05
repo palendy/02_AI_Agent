@@ -20,6 +20,7 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import BaseRetriever
 
@@ -67,7 +68,13 @@ class SRSGenerationAgent:
         """Initialize the SRS generation agent"""
         self.model_name = model_name
         self.temperature = temperature
-        self.llm = ChatOpenAI(model_name=model_name, temperature=temperature)
+        
+        # Initialize LLM based on model type
+        if "claude" in model_name.lower():
+            self.llm = ChatAnthropic(model_name=model_name, temperature=temperature)
+        else:
+            self.llm = ChatOpenAI(model_name=model_name, temperature=temperature)
+            
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,

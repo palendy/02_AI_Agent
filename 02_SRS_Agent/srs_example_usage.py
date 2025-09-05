@@ -12,6 +12,7 @@ import os
 import tempfile
 from typing import List
 from srs_generation_agent import SRSGenerationAgent
+from config import ConfigProfiles, AgentConfig
 
 
 def create_sample_spec_documents() -> List[str]:
@@ -489,28 +490,99 @@ def demonstrate_agent_capabilities():
         print(f"   {i}. {use_case}")
 
 
+def test_claude_integration():
+    """Test Claude model integration"""
+    print("\n🧪 Testing Claude Model Integration")
+    print("-" * 50)
+    
+    try:
+        # Test with Claude model
+        config = AgentConfig(ConfigProfiles.claude_production())
+        agent = SRSGenerationAgent(
+            model_name=config.model.name,
+            temperature=config.model.temperature
+        )
+        
+        print(f"✅ Successfully initialized agent with Claude model: {config.model.name}")
+        
+        # Create sample document
+        sample_files = create_sample_spec_documents()
+        
+        # Test SRS generation with Claude
+        print("🔄 Generating SRS with Claude model...")
+        result = agent.generate_srs(sample_files[:1])  # Use only first sample to save tokens
+        
+        if result and result.get("final_srs"):
+            print("✅ Claude model integration successful!")
+            print(f"Generated SRS length: {len(result['final_srs'])} characters")
+            return True
+        else:
+            print("❌ Claude model integration failed - no SRS generated")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Claude model integration failed: {str(e)}")
+        return False
+    finally:
+        # Clean up sample files
+        for file_path in sample_files:
+            try:
+                os.unlink(file_path)
+            except:
+                pass
+
+
 if __name__ == "__main__":
     import sys
     
-    # Set OpenAI API key if not already set
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Warning: OPENAI_API_KEY environment variable not set.")
-        print("Please set your OpenAI API key to test the agent.")
-        print("Example: export OPENAI_API_KEY='your-api-key-here'")
+    # Check API keys
+    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
+    
+    if not has_openai and not has_anthropic:
+        print("Warning: Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY environment variable is set.")
+        print("Please set at least one API key to test the agent.")
+        print("Examples:")
+        print("  export OPENAI_API_KEY='your-openai-api-key-here'")
+        print("  export ANTHROPIC_API_KEY='your-anthropic-api-key-here'")
         sys.exit(1)
     
-    # Run demonstration
-    demonstrate_agent_capabilities()
+    print("🚀 SRS Generation Agent - Comprehensive Testing")
+    print("=" * 60)
     
-    # Run test
-    print("\n" + "="*60)
-    test_result = test_srs_generation()
-    
-    if test_result:
+    if has_openai:
+        print("\n📋 Testing with OpenAI models...")
+        # Run demonstration
+        demonstrate_agent_capabilities()
+        
+        # Run test
         print("\n" + "="*60)
-        print("✅ SRS Generation Agent test completed successfully!")
-        print("Check the generated SRS document for detailed results.")
+        test_result = test_srs_generation()
+    
+    if has_anthropic:
+        print("\n🤖 Testing with Claude models...")
+        claude_result = test_claude_integration()
     else:
-        print("\n" + "="*60)
-        print("❌ SRS Generation Agent test failed.")
+        claude_result = None
+    
+    # Final results
+    print("\n" + "="*60)
+    print("📊 Test Results Summary")
+    print("-" * 30)
+    
+    if has_openai:
+        status = "✅ PASSED" if test_result else "❌ FAILED"
+        print(f"OpenAI Models: {status}")
+    
+    if has_anthropic:
+        status = "✅ PASSED" if claude_result else "❌ FAILED"
+        print(f"Claude Models: {status}")
+    
+    overall_success = (not has_openai or test_result) and (not has_anthropic or claude_result)
+    
+    if overall_success:
+        print("\n🎉 All tests completed successfully!")
+        print("The SRS Generation Agent is ready for production use.")
+    else:
+        print("\n⚠️  Some tests failed.")
         print("Please check the error messages above for troubleshooting.")

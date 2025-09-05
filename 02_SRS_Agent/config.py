@@ -108,6 +108,7 @@ class AgentConfig:
         # Environment variables
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.openai_organization = os.getenv("OPENAI_ORGANIZATION")
+        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         
@@ -135,8 +136,9 @@ class AgentConfig:
     
     def _validate_config(self):
         """Validate configuration settings"""
-        if not self.openai_api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+        # Check if at least one API key is provided
+        if not self.openai_api_key and not self.anthropic_api_key:
+            raise ValueError("Either OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable is required")
         
         if self.embedding.chunk_size <= 0:
             raise ValueError("Chunk size must be positive")
@@ -158,6 +160,7 @@ class AgentConfig:
             "environment": {
                 "openai_api_key": "***" if self.openai_api_key else None,
                 "openai_organization": self.openai_organization,
+                "anthropic_api_key": "***" if self.anthropic_api_key else None,
                 "debug_mode": self.debug_mode,
                 "log_level": self.log_level
             }
@@ -233,6 +236,49 @@ class ConfigProfiles:
         return {
             "model": {
                 "name": "gpt-4o",
+                "temperature": 0.05,
+                "max_tokens": 8000
+            },
+            "embedding": {
+                "chunk_size": 1200,
+                "chunk_overlap": 300
+            },
+            "vectorstore": {
+                "k": 12,
+                "fetch_k": 30,
+                "lambda_mult": 0.3
+            },
+            "debug_mode": False,
+            "log_level": "INFO"
+        }
+    
+    @staticmethod
+    def claude_production() -> Dict[str, Any]:
+        """Production configuration with Claude model"""
+        return {
+            "model": {
+                "name": "claude-3-5-sonnet-20241022",
+                "temperature": 0.1,
+                "max_tokens": 4000
+            },
+            "vectorstore": {
+                "k": 8,
+                "fetch_k": 20
+            },
+            "workflow": {
+                "timeout_seconds": 600,
+                "retry_attempts": 3
+            },
+            "debug_mode": False,
+            "log_level": "INFO"
+        }
+    
+    @staticmethod
+    def claude_high_quality() -> Dict[str, Any]:
+        """High quality configuration with Claude model for complex documents"""
+        return {
+            "model": {
+                "name": "claude-3-5-sonnet-20241022",
                 "temperature": 0.05,
                 "max_tokens": 8000
             },
