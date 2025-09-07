@@ -39,9 +39,8 @@ class SRSState(TypedDict):
     raw_documents: List[Document]  # Loaded documents
     processed_documents: List[Document]  # Split and processed documents
     
-    # RAG components
-    vectorstore: Any  # Vector store for document retrieval
-    retriever: BaseRetriever  # Document retriever
+    # RAG components - stored as instance variables to avoid serialization issues
+    # vectorstore and retriever are created as needed in the agent instance
     
     # Analysis results
     requirements_analysis: Dict[str, Any]  # Extracted requirements analysis
@@ -81,6 +80,10 @@ class SRSGenerationAgent:
             chunk_overlap=200,
             separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
         )
+        
+        # RAG components stored as instance variables to avoid serialization issues
+        self.vectorstore = None
+        self.retriever = None
         
         # Initialize workflow
         self.workflow = self._create_workflow()
@@ -201,14 +204,14 @@ class SRSGenerationAgent:
                 state["errors"].append(error_msg)
                 return state
             
-            # Create vector store
-            vectorstore = FAISS.from_documents(
+            # Create vector store and store as instance variable to avoid serialization issues
+            self.vectorstore = FAISS.from_documents(
                 documents=state["processed_documents"],
                 embedding=self.embeddings
             )
             
             # Create retriever with MMR search
-            retriever = vectorstore.as_retriever(
+            self.retriever = self.vectorstore.as_retriever(
                 search_type="mmr",
                 search_kwargs={
                     "k": 8,
@@ -216,9 +219,6 @@ class SRSGenerationAgent:
                     "lambda_mult": 0.5
                 }
             )
-            
-            state["vectorstore"] = vectorstore
-            state["retriever"] = retriever
             state["current_step"] = "vectorstore_created"
             logger.info("Vector store and retriever created successfully")
             
@@ -266,7 +266,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context using retriever
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "system requirements specification project scope objectives stakeholders"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
@@ -317,7 +317,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "functional requirements features capabilities user interface business logic operations"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
@@ -368,7 +368,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "non-functional requirements performance scalability security reliability usability compliance"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
@@ -415,7 +415,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "system interfaces API integration external systems database network communication protocols"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
@@ -463,7 +463,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "data requirements database storage entities relationships data quality security privacy backup"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
@@ -511,7 +511,7 @@ class SRSGenerationAgent:
             ])
             
             # Get relevant context
-            context_docs = state["retriever"].get_relevant_documents(
+            context_docs = self.retriever.get_relevant_documents(
                 "performance requirements response time throughput scalability load users availability uptime"
             )
             context = "\n\n".join([doc.page_content for doc in context_docs])
