@@ -310,24 +310,27 @@ Provide a detailed analysis in JSON format with extensive coverage of all aspect
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are an expert business analyst. Extract ALL functional requirements from the documents.
-                
-                Functional requirements describe what the system must do. Extract:
-                - All system functions and capabilities
-                - User interface requirements
-                - Data processing functions
-                - Business logic operations
-                - System behaviors and workflows
-                - Integration functions
-                - API and interface functions
-                
-                Be comprehensive - extract as many legitimate functional requirements as possible.
-                Format each as a clear requirement statement without made-up identifiers."""),
-                ("user", """Extract comprehensive functional requirements from these documents:
+                ("system", """You are an expert business analyst. Extract SPECIFIC, DETAILED functional requirements from the documents.
+
+                IMPORTANT GUIDELINES:
+                1. Extract EXACT specifications mentioned in the documents
+                2. Include SPECIFIC technical details, parameters, and values from the source
+                3. Quote or reference specific sections when possible
+                4. Include precise algorithms, methods, and procedures described
+                5. Mention exact data types, formats, and structures specified
+                6. Include specific error conditions and handling procedures
+                7. Reference exact standards, protocols, and specifications mentioned
+                8. Include specific performance metrics and constraints if mentioned
+
+                AVOID generic statements like "The system must provide user authentication"
+                PREFER specific statements like "The system must authenticate users using SHA-256 hashed passwords with minimum 8 characters including uppercase, lowercase, numbers, and special characters as specified in section 3.2.1"
+
+                Extract detailed, implementation-ready functional requirements."""),
+                ("user", """Extract SPECIFIC and DETAILED functional requirements from these documents with exact technical details:
 
 {context}
 
-Return a detailed list of functional requirements. Focus on completeness and accuracy.""")
+Focus on extracting precise specifications, exact values, specific algorithms, detailed procedures, and implementation details mentioned in the source documents.""")
             ])
             
             # 더 많은 기능 관련 컨텍스트 검색
@@ -348,7 +351,7 @@ Return a detailed list of functional requirements. Focus on completeness and acc
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     # 리스트 마커 제거
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 20 and not clean_req.startswith('FR-'):  # 가짜 ID 제거
+                    if len(clean_req) > 30 and not clean_req.startswith('FR-'):  # 더 긴 상세 요구사항만 선택
                         requirements.append(clean_req)
             
             state["functional_requirements"] = requirements
@@ -368,24 +371,27 @@ Return a detailed list of functional requirements. Focus on completeness and acc
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """Extract ALL non-functional requirements that define system quality attributes.
-                
-                Include:
-                - Performance requirements (response time, throughput, capacity)
-                - Security and privacy requirements  
-                - Reliability and availability requirements
-                - Scalability requirements
-                - Usability and accessibility requirements
-                - Maintainability and supportability requirements
-                - Compliance and regulatory requirements
-                - Resource constraints and limitations
-                
-                Be thorough and extract everything mentioned in the documents."""),
-                ("user", """Extract comprehensive non-functional requirements:
+                ("system", """Extract SPECIFIC, DETAILED non-functional requirements with exact technical specifications.
+
+                IMPORTANT GUIDELINES:
+                1. Include EXACT performance metrics mentioned (e.g., "response time < 200ms", "throughput of 1000 TPS")
+                2. Specify PRECISE security algorithms and standards referenced
+                3. Include SPECIFIC availability percentages and uptime requirements
+                4. Mention EXACT resource limitations and constraints specified
+                5. Reference SPECIFIC compliance standards and regulations mentioned
+                6. Include DETAILED error handling and recovery procedures
+                7. Specify EXACT scalability targets and thresholds
+                8. Include PRECISE quality metrics and measurement criteria
+
+                AVOID generic statements like "The system must be secure"
+                PREFER specific statements like "The system must implement AES-256 encryption for data at rest and TLS 1.3 for data in transit as specified in security requirements section 4.2"
+
+                Extract detailed, measurable non-functional requirements."""),
+                ("user", """Extract SPECIFIC and DETAILED non-functional requirements with exact technical specifications:
 
 {context}
 
-Focus on quality attributes, constraints, and performance expectations mentioned in the documents.""")
+Focus on precise quality attributes, exact performance metrics, specific security standards, and detailed constraints mentioned in the source documents.""")
             ])
             
             context_docs = self.retriever.get_relevant_documents(
@@ -403,7 +409,7 @@ Focus on quality attributes, constraints, and performance expectations mentioned
                 if line and (line.startswith('-') or line.startswith('*') or 
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 20 and not clean_req.startswith('NFR-'):
+                    if len(clean_req) > 30 and not clean_req.startswith('NFR-'):
                         requirements.append(clean_req)
             
             state["non_functional_requirements"] = requirements
@@ -423,20 +429,27 @@ Focus on quality attributes, constraints, and performance expectations mentioned
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """Extract ALL system interface requirements that define how the system interacts with:
-                - External systems and APIs
-                - User interfaces and presentation layers  
-                - Hardware interfaces and devices
-                - Database and data storage interfaces
-                - Network and communication interfaces
-                - File system and data format interfaces
-                
-                Be comprehensive in extracting interface specifications."""),
-                ("user", """Extract system interface requirements:
+                ("system", """Extract SPECIFIC, DETAILED system interface requirements with exact technical specifications.
+
+                IMPORTANT GUIDELINES:
+                1. Include EXACT API endpoints, methods, and parameters specified
+                2. Specify PRECISE communication protocols and standards referenced
+                3. Include SPECIFIC data formats and schemas mentioned (JSON, XML, etc.)
+                4. Mention EXACT hardware interface specifications and pin configurations
+                5. Reference SPECIFIC network protocols and port configurations
+                6. Include DETAILED error codes and response formats
+                7. Specify EXACT authentication and authorization mechanisms
+                8. Include PRECISE timing and synchronization requirements
+
+                AVOID generic statements like "The system must provide API interfaces"
+                PREFER specific statements like "The system must provide REST API endpoints at /api/v1/users with GET, POST methods, accepting JSON payloads with max 1MB size and returning HTTP status codes 200, 400, 401, 500 as specified in API documentation section 2.3"
+
+                Extract detailed, implementation-ready interface requirements."""),
+                ("user", """Extract SPECIFIC and DETAILED system interface requirements with exact technical specifications:
 
 {context}
 
-Focus on all types of interfaces, protocols, and integration points mentioned.""")
+Focus on precise API specifications, exact protocols, specific data formats, and detailed integration requirements mentioned in the source documents.""")
             ])
             
             context_docs = self.retriever.get_relevant_documents(
@@ -454,7 +467,7 @@ Focus on all types of interfaces, protocols, and integration points mentioned.""
                 if line and (line.startswith('-') or line.startswith('*') or 
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 20 and not clean_req.startswith('SI-'):
+                    if len(clean_req) > 30 and not clean_req.startswith('SI-'):
                         requirements.append(clean_req)
             
             state["system_interfaces"] = requirements
@@ -474,21 +487,27 @@ Focus on all types of interfaces, protocols, and integration points mentioned.""
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """Extract ALL data requirements including:
-                - Data entities and their relationships
-                - Data storage and retention requirements
-                - Data quality and validation rules
-                - Data security and privacy requirements
-                - Data migration and conversion needs
-                - Backup and recovery requirements
-                - Data formats and encoding specifications
-                
-                Be thorough in extracting data-related requirements."""),
-                ("user", """Extract comprehensive data requirements:
+                ("system", """Extract SPECIFIC, DETAILED data requirements with exact technical specifications.
+
+                IMPORTANT GUIDELINES:
+                1. Include EXACT data types, field lengths, and constraints specified
+                2. Specify PRECISE database schemas and table structures mentioned
+                3. Include SPECIFIC validation rules and regex patterns referenced
+                4. Mention EXACT data formats and encoding standards specified
+                5. Reference SPECIFIC retention periods and archival procedures
+                6. Include DETAILED backup schedules and recovery procedures
+                7. Specify EXACT data encryption and security requirements
+                8. Include PRECISE data volume and storage capacity requirements
+
+                AVOID generic statements like "The system must store user data"
+                PREFER specific statements like "The system must store user data in PostgreSQL database with username field as VARCHAR(50) NOT NULL UNIQUE, password field as CHAR(64) for SHA-256 hash, and created_date as TIMESTAMP with timezone as specified in database schema section 3.1"
+
+                Extract detailed, implementation-ready data requirements."""),
+                ("user", """Extract SPECIFIC and DETAILED data requirements with exact technical specifications:
 
 {context}
 
-Focus on all data-related specifications, formats, and management requirements.""")
+Focus on precise data structures, exact field specifications, specific validation rules, and detailed storage requirements mentioned in the source documents.""")
             ])
             
             context_docs = self.retriever.get_relevant_documents(
@@ -506,7 +525,7 @@ Focus on all data-related specifications, formats, and management requirements."
                 if line and (line.startswith('-') or line.startswith('*') or 
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 20 and not clean_req.startswith('DR-'):
+                    if len(clean_req) > 30 and not clean_req.startswith('DR-'):
                         requirements.append(clean_req)
             
             state["data_requirements"] = requirements
@@ -526,20 +545,27 @@ Focus on all data-related specifications, formats, and management requirements."
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """Extract ALL performance requirements including:
-                - Response time and latency requirements
-                - Throughput and transaction volume requirements
-                - Concurrent user and load requirements
-                - Resource utilization limits and constraints
-                - Scalability requirements and targets
-                - Availability and uptime requirements
-                
-                Extract everything related to system performance mentioned in the documents."""),
-                ("user", """Extract comprehensive performance requirements:
+                ("system", """Extract SPECIFIC, DETAILED performance requirements with exact metrics and measurements.
+
+                IMPORTANT GUIDELINES:
+                1. Include EXACT response time requirements with specific millisecond values
+                2. Specify PRECISE throughput numbers (requests per second, transactions per minute)
+                3. Include SPECIFIC concurrent user limits and load capacity numbers
+                4. Mention EXACT resource usage limits (CPU %, memory MB/GB, disk space)
+                5. Reference SPECIFIC availability percentages and uptime requirements
+                6. Include DETAILED scalability thresholds and growth targets
+                7. Specify EXACT performance testing criteria and benchmarks
+                8. Include PRECISE latency requirements and timeout values
+
+                AVOID generic statements like "The system must be fast"
+                PREFER specific statements like "The system must respond to user login requests within 500 milliseconds for 95% of requests, support concurrent login of 1000 users with CPU utilization not exceeding 80%, and maintain 99.9% uptime as specified in performance requirements section 5.2"
+
+                Extract detailed, measurable performance requirements."""),
+                ("user", """Extract SPECIFIC and DETAILED performance requirements with exact metrics and measurements:
 
 {context}
 
-Focus on all performance metrics, benchmarks, and expectations mentioned.""")
+Focus on precise performance numbers, exact timing requirements, specific capacity limits, and detailed benchmarks mentioned in the source documents.""")
             ])
             
             context_docs = self.retriever.get_relevant_documents(
@@ -557,7 +583,7 @@ Focus on all performance metrics, benchmarks, and expectations mentioned.""")
                 if line and (line.startswith('-') or line.startswith('*') or 
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 20 and not clean_req.startswith('PR-'):
+                    if len(clean_req) > 30 and not clean_req.startswith('PR-'):
                         requirements.append(clean_req)
             
             state["performance_requirements"] = requirements
@@ -780,7 +806,7 @@ Extract implicit requirements that are logically necessary but not explicitly st
             
             return ValidationResult(
                 original_requirement=requirement,
-                is_valid=confidence > 0.3,
+                is_valid=confidence > 0.15,  # 더 관대한 검증 임계값
                 confidence_score=confidence,
                 evidence=evidence
             )
@@ -806,7 +832,7 @@ Extract implicit requirements that are logically necessary but not explicitly st
                 valid_reqs = []
                 
                 for validation in validations:
-                    if validation.is_valid and validation.confidence_score > 0.4:
+                    if validation.is_valid and validation.confidence_score > 0.2:  # 더 관대한 임계값으로 변경
                         valid_reqs.append(validation.original_requirement)
                     else:
                         rejected_requirements.append({
