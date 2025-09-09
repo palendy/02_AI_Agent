@@ -89,8 +89,8 @@ class HybridSRSGenerationAgent:
             
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=200,
+            chunk_size=800,
+            chunk_overlap=400,
             separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
         )
         
@@ -121,7 +121,7 @@ class HybridSRSGenerationAgent:
         
         # 새로운 검증 노드들
         workflow.add_node("validate_requirements", self._validate_requirements)
-        workflow.add_node("enhance_extraction", self._enhance_extraction)
+        workflow.add_node("extract_implicit_requirements", self._extract_implicit_requirements)
         workflow.add_node("fact_check_requirements", self._fact_check_requirements)
         workflow.add_node("apply_corrections", self._apply_corrections)
         
@@ -141,8 +141,8 @@ class HybridSRSGenerationAgent:
         workflow.add_edge("extract_data_requirements", "extract_performance_requirements")
         
         # 검증 단계 추가
-        workflow.add_edge("extract_performance_requirements", "enhance_extraction")
-        workflow.add_edge("enhance_extraction", "validate_requirements")
+        workflow.add_edge("extract_performance_requirements", "extract_implicit_requirements")
+        workflow.add_edge("extract_implicit_requirements", "validate_requirements")
         workflow.add_edge("validate_requirements", "fact_check_requirements")
         workflow.add_edge("fact_check_requirements", "apply_corrections")
         workflow.add_edge("apply_corrections", "generate_srs_sections")
@@ -234,8 +234,8 @@ class HybridSRSGenerationAgent:
             self.retriever = self.vectorstore.as_retriever(
                 search_type="mmr",
                 search_kwargs={
-                    "k": 12,  # 더 많은 컨텍스트 검색
-                    "fetch_k": 30,
+                    "k": 30,  # 더 많은 컨텍스트 검색 (2.5x 증가)
+                    "fetch_k": 75,  # 더 많은 후보 검색 (2.5x 증가)
                     "lambda_mult": 0.5
                 }
             )
@@ -571,13 +571,13 @@ Focus on all performance metrics, benchmarks, and expectations mentioned.""")
         
         return state
     
-    def _enhance_extraction(self, state: HybridSRSState) -> HybridSRSState:
-        """추출된 요구사항 보완"""
-        logger.info("Enhancing extracted requirements...")
+    def _extract_implicit_requirements(self, state: HybridSRSState) -> HybridSRSState:
+        """암시적 요구사항 추출 - 2차 패스 분석"""
+        logger.info("Extracting implicit requirements with second-pass analysis...")
         
         try:
-            # 각 카테고리별로 추가 요구사항 탐색
-            all_requirements = (
+            # 1차 추출된 모든 요구사항 수집
+            all_existing_requirements = (
                 state["functional_requirements"] +
                 state["non_functional_requirements"] +
                 state["system_interfaces"] +
@@ -585,61 +585,118 @@ Focus on all performance metrics, benchmarks, and expectations mentioned.""")
                 state["performance_requirements"]
             )
             
-            # 요구사항 수가 적으면 추가 추출 시도
-            if len(all_requirements) < 30:
-                logger.info("Low requirement count detected, attempting enhanced extraction...")
+            # 암시적 요구사항 추출 프롬프트
+            implicit_prompt = ChatPromptTemplate.from_messages([
+                ("system", """You are conducting a specialized second-pass analysis to identify IMPLICIT requirements.
+                These are requirements that are not explicitly stated but are necessary for the system to function.
                 
-                enhancement_prompt = ChatPromptTemplate.from_messages([
-                    ("system", """You are conducting a second-pass analysis to find additional requirements.
-                    Look for implicit requirements, derived requirements, and detailed specifications that might have been missed.
-                    
-                    Focus on finding:
-                    - Implicit functional requirements from system descriptions
-                    - Detailed technical specifications
-                    - Compliance and regulatory requirements
-                    - Additional interface requirements
-                    - Operational requirements"""),
-                    ("user", """Perform enhanced requirement extraction from this comprehensive context:
+                Focus on finding:
+                1. IMPLICIT functional requirements from business process descriptions
+                2. Derived requirements from stated constraints and goals
+                3. Infrastructure requirements implied by functional needs
+                4. Compliance requirements implied by domain or regulations
+                5. Integration requirements implied by mentioned external systems
+                6. Operational requirements for system maintenance and support
+                7. User experience requirements implied by user roles
+                8. Security requirements implied by data handling descriptions
+                
+                IMPORTANT: Only extract requirements that are genuinely IMPLIED by the context, not fabricated.
+                Avoid duplicating existing explicit requirements."""),
+                ("user", """Analyze this context for IMPLICIT requirements:
 
 {context}
 
-Already found requirements:
+Existing explicit requirements (to avoid duplication):
 {existing_requirements}
 
-Find additional requirements that complement the existing ones.""")
-                ])
-                
-                # 전체 문서에서 추가 컨텍스트 검색
-                context_docs = self.retriever.get_relevant_documents(
-                    "requirements specifications system must should shall compliance"
-                )
-                context = "\n\n".join([doc.page_content for doc in context_docs])
-                
-                chain = enhancement_prompt | self.llm | StrOutputParser()
-                response = chain.invoke({
-                    "context": context,
-                    "existing_requirements": "\n".join(all_requirements[:10])  # 처음 10개만 참조
-                })
-                
-                # 추가 요구사항 파싱
-                additional_requirements = []
-                lines = response.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if line and (line.startswith('-') or line.startswith('*') or 
-                               line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
-                        clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                        if len(clean_req) > 20:
-                            additional_requirements.append(clean_req)
-                
-                # 기능 요구사항에 추가 (임시로)
-                state["functional_requirements"].extend(additional_requirements[:10])
-                logger.info(f"Added {len(additional_requirements[:10])} enhanced requirements")
+Extract implicit requirements that are logically necessary but not explicitly stated.""")
+            ])
             
-            state["current_step"] = "extraction_enhanced"
+            # 다양한 관점에서 컨텍스트 검색
+            implicit_queries = [
+                "business process workflow operations must support",
+                "system integration external dependencies interfaces",
+                "user roles permissions access control security",
+                "maintenance support deployment operations",
+                "compliance regulatory standards legal requirements"
+            ]
+            
+            all_context = []
+            for query in implicit_queries:
+                context_docs = self.retriever.get_relevant_documents(query)
+                all_context.extend([doc.page_content for doc in context_docs[:5]])
+            
+            context = "\n\n".join(set(all_context))  # 중복 제거
+            
+            chain = implicit_prompt | self.llm | StrOutputParser()
+            response = chain.invoke({
+                "context": context,
+                "existing_requirements": "\n".join(all_existing_requirements[:15])  # 처음 15개 참조
+            })
+            
+            # 암시적 요구사항 파싱
+            implicit_requirements = {
+                "functional": [],
+                "non_functional": [],
+                "interfaces": [],
+                "data": [],
+                "performance": []
+            }
+            
+            current_category = "functional"  # 기본 카테고리
+            lines = response.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                
+                # 카테고리 감지
+                if "functional" in line.lower() and "non-functional" not in line.lower():
+                    current_category = "functional"
+                elif "non-functional" in line.lower() or "quality" in line.lower():
+                    current_category = "non_functional"
+                elif "interface" in line.lower() or "integration" in line.lower():
+                    current_category = "interfaces"
+                elif "data" in line.lower():
+                    current_category = "data"
+                elif "performance" in line.lower():
+                    current_category = "performance"
+                
+                # 요구사항 추출
+                if line and (line.startswith('-') or line.startswith('*') or 
+                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                    clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
+                    if len(clean_req) > 25 and not any(clean_req.startswith(prefix) for prefix in ['FR-', 'NFR-', 'DR-', 'PR-', 'SI-']):
+                        implicit_requirements[current_category].append(clean_req)
+            
+            # 기존 요구사항 목록에 암시적 요구사항 추가
+            if implicit_requirements["functional"]:
+                state["functional_requirements"].extend(implicit_requirements["functional"][:5])
+                logger.info(f"Added {len(implicit_requirements['functional'][:5])} implicit functional requirements")
+            
+            if implicit_requirements["non_functional"]:
+                state["non_functional_requirements"].extend(implicit_requirements["non_functional"][:5])
+                logger.info(f"Added {len(implicit_requirements['non_functional'][:5])} implicit non-functional requirements")
+            
+            if implicit_requirements["interfaces"]:
+                state["system_interfaces"].extend(implicit_requirements["interfaces"][:3])
+                logger.info(f"Added {len(implicit_requirements['interfaces'][:3])} implicit interface requirements")
+            
+            if implicit_requirements["data"]:
+                state["data_requirements"].extend(implicit_requirements["data"][:3])
+                logger.info(f"Added {len(implicit_requirements['data'][:3])} implicit data requirements")
+            
+            if implicit_requirements["performance"]:
+                state["performance_requirements"].extend(implicit_requirements["performance"][:3])
+                logger.info(f"Added {len(implicit_requirements['performance'][:3])} implicit performance requirements")
+            
+            total_implicit = sum(len(reqs[:5 if cat in ['functional', 'non_functional'] else 3]) 
+                               for cat, reqs in implicit_requirements.items())
+            
+            state["current_step"] = "implicit_requirements_extracted"
+            logger.info(f"Completed implicit requirements extraction: {total_implicit} total implicit requirements added")
             
         except Exception as e:
-            error_msg = f"Error enhancing extraction: {str(e)}"
+            error_msg = f"Error extracting implicit requirements: {str(e)}"
             logger.error(error_msg)
             state["errors"].append(error_msg)
         
