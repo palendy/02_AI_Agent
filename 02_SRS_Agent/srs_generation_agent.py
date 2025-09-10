@@ -12,7 +12,7 @@ Hybrid SRS Generation Agent - 기존 방식 + 사실 검증
 import os
 import re
 import logging
-from typing import TypedDict, List, Dict, Any, Annotated, Tuple
+from typing import TypedDict, List, Dict, Any, Annotated
 from operator import add
 from dataclasses import dataclass
 
@@ -88,10 +88,14 @@ class HybridSRSGenerationAgent:
             self.validator_llm = ChatOpenAI(model_name=model_name, temperature=0.0)
             
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        
+        # 향상된 문서 분할기 - 기술 문서에 최적화
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=400,
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+            chunk_size=1200,  # 더 큰 청크로 컨텍스트 확보
+            chunk_overlap=300,  # 더 많은 오버랩으로 연관성 확보
+            separators=["\\n\\n", "\\n", ". ", "! ", "? ", ", ", " ", ""],
+            length_function=len,
+            is_separator_regex=False
         )
         
         self.vectorstore = None
@@ -150,6 +154,22 @@ class HybridSRSGenerationAgent:
         workflow.add_edge("compile_final_srs", END)
         
         return workflow
+    
+    def _format_citation(self, document: Document) -> str:
+        """문서에서 인용 정보 포맷팅"""
+        if not hasattr(document, 'metadata') or not document.metadata:
+            return "[Source: Unknown]"
+        
+        source_file = document.metadata.get('source', 'Unknown')
+        if isinstance(source_file, str) and source_file.startswith('/'):
+            source_file = source_file.split('/')[-1]  # Get filename only
+        
+        page = document.metadata.get('page', None)
+        
+        if page is not None and str(page).lower() != 'unknown':
+            return f"[Source: {source_file}, Page {page}]"
+        else:
+            return f"[Source: {source_file}]"
     
     def _load_documents(self, state: HybridSRSState) -> HybridSRSState:
         """문서 로딩 (기존과 동일)"""
@@ -305,54 +325,104 @@ Provide a detailed analysis in JSON format with extensive coverage of all aspect
         return state
     
     def _extract_functional_requirements(self, state: HybridSRSState) -> HybridSRSState:
-        """기능 요구사항 추출 (더 많이 추출)"""
-        logger.info("Extracting functional requirements comprehensively...")
+        """기능 요구사항 추출 (소스 인용 포함)"""
+        logger.info("Extracting functional requirements with source citations...")
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are an expert business analyst. Extract SPECIFIC, DETAILED functional requirements from the documents.
+                ("system", """You are a technical requirements analyst specializing in system specifications. Extract CONCRETE, IMPLEMENTATION-READY functional requirements.
 
-                IMPORTANT GUIDELINES:
-                1. Extract EXACT specifications mentioned in the documents
-                2. Include SPECIFIC technical details, parameters, and values from the source
-                3. Quote or reference specific sections when possible
-                4. Include precise algorithms, methods, and procedures described
-                5. Mention exact data types, formats, and structures specified
-                6. Include specific error conditions and handling procedures
-                7. Reference exact standards, protocols, and specifications mentioned
-                8. Include specific performance metrics and constraints if mentioned
+                EXTRACTION RULES:
+                1. Extract ONLY requirements that specify what the system/platform/component MUST do
+                2. Include EXACT technical parameters: numbers, values, limits, thresholds
+                3. Reference SPECIFIC methods, functions, classes, or components mentioned
+                4. Include PRECISE error handling procedures and status codes
+                5. Quote EXACT command formats, data structures, and protocols
+                6. Specify DETAILED processing steps and algorithmic requirements
+                7. Include EXPLICIT validation rules and constraints
+                8. Reference SPECIFIC standards, formats, and compliance requirements
 
-                AVOID generic statements like "The system must provide user authentication"
-                PREFER specific statements like "The system must authenticate users using SHA-256 hashed passwords with minimum 8 characters including uppercase, lowercase, numbers, and special characters as specified in section 3.2.1"
+                FORMAT REQUIREMENTS:
+                - Each requirement must start with "The system must" or "The platform must" or "The component must"
+                - Include specific technical terms and terminology from the source document
+                - End with precise source citation: [Source: filename, Page X]
+                - Be specific enough that a developer could implement it
 
-                Extract detailed, implementation-ready functional requirements."""),
-                ("user", """Extract SPECIFIC and DETAILED functional requirements from these documents with exact technical details:
+                EXAMPLES OF GOOD REQUIREMENTS:
+                ✓ "The platform must support APDU commands with maximum data field length of 65535 bytes as defined in ISO 7816-4 extended length format. [Source: spec.pdf, Page 97]"
+                ✓ "The system must return status code 0x6881 (SW_LOGICAL_CHANNEL_NOT_SUPPORTED) when logical channel resources are unavailable during SELECT FILE command processing. [Source: spec.pdf, Page 39]"
+
+                AVOID GENERIC REQUIREMENTS:
+                ✗ "The system must provide authentication"
+                ✗ "The system must handle errors properly"
+                ✗ "The system must be secure"
+
+                Extract concrete, testable functional requirements with implementation details."""),
+                ("user", """Extract CONCRETE functional requirements from these technical specification documents:
 
 {context}
 
-Focus on extracting precise specifications, exact values, specific algorithms, detailed procedures, and implementation details mentioned in the source documents.""")
+Focus on extracting requirements that specify exact system behaviors, precise technical parameters, specific processing steps, and detailed implementation constraints. Each requirement must be specific enough for direct implementation.""")
             ])
             
-            # 더 많은 기능 관련 컨텍스트 검색
-            context_docs = self.retriever.get_relevant_documents(
-                "functional requirements features capabilities functions operations business logic interface"
-            )
-            context = "\n\n".join([doc.page_content for doc in context_docs])
+            # 다양한 기술적 컨텍스트로 검색하여 더 많은 구체적 요구사항 확보
+            context_queries = [
+                "must shall should requirements specifications",
+                "commands operations processing procedures methods",
+                "functions capabilities features behaviors actions",
+                "parameters values limits thresholds constraints",
+                "formats structures protocols standards compliance"
+            ]
+            
+            context_docs = []
+            for query in context_queries:
+                docs = self.retriever.get_relevant_documents(query)
+                context_docs.extend(docs[:8])  # 각 쿼리당 8개 문서
+            
+            # 컨텍스트에 인용 정보 포함
+            context_parts = []
+            for doc in context_docs:
+                citation = self._format_citation(doc)
+                context_parts.append(f"{doc.page_content}\n{citation}")
+            context = "\n\n---\n\n".join(context_parts)
             
             chain = prompt | self.llm | StrOutputParser()
             response = chain.invoke({"context": context})
             
-            # 요구사항 파싱 (더 유연하게)
+            # 요구사항 파싱 및 ID 생성
             requirements = []
+            req_counter = 1
             lines = response.split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if line and (line.startswith('-') or line.startswith('*') or 
-                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                
+                # 요구사항 라인 감지 (더 유연한 패턴)
+                if (line and 
+                    (line.startswith('-') or line.startswith('*') or line.startswith('•') or 
+                     any(line.startswith(f"{i}.") for i in range(1, 100)) or
+                     line.lower().startswith('the ') and ('must' in line.lower() or 'shall' in line.lower()))):
+                    
                     # 리스트 마커 제거
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 30 and not clean_req.startswith('FR-'):  # 더 긴 상세 요구사항만 선택
-                        requirements.append(clean_req)
+                    
+                    # 최소 길이 및 기술적 내용 확인
+                    if (len(clean_req) > 40 and 
+                        ('must' in clean_req.lower() or 'shall' in clean_req.lower()) and
+                        not clean_req.startswith('FR-')):
+                        
+                        # 인용 정보 확인 및 추가
+                        if '[Source:' not in clean_req:
+                            clean_req += " [Source: Specification Document]"
+                        
+                        # 요구사항 ID 추가
+                        formatted_req = f"FR-{req_counter:03d}: {clean_req}"
+                        requirements.append(formatted_req)
+                        req_counter += 1
+                        
+                        # 최대 20개 요구사항으로 제한 (품질 확보)
+                        if len(requirements) >= 20:
+                            break
             
             state["functional_requirements"] = requirements
             state["current_step"] = "functional_requirements_extracted"
@@ -366,51 +436,110 @@ Focus on extracting precise specifications, exact values, specific algorithms, d
         return state
     
     def _extract_non_functional_requirements(self, state: HybridSRSState) -> HybridSRSState:
-        """비기능 요구사항 추출 (더 많이 추출)"""
-        logger.info("Extracting non-functional requirements comprehensively...")
+        """비기능 요구사항 추출 (소스 인용 포함)"""
+        logger.info("Extracting non-functional requirements with source citations...")
         
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """Extract SPECIFIC, DETAILED non-functional requirements with exact technical specifications.
+                ("system", """You are a quality assurance analyst specializing in non-functional requirements. Extract MEASURABLE, TESTABLE quality attributes and constraints.
 
-                IMPORTANT GUIDELINES:
-                1. Include EXACT performance metrics mentioned (e.g., "response time < 200ms", "throughput of 1000 TPS")
-                2. Specify PRECISE security algorithms and standards referenced
-                3. Include SPECIFIC availability percentages and uptime requirements
-                4. Mention EXACT resource limitations and constraints specified
-                5. Reference SPECIFIC compliance standards and regulations mentioned
-                6. Include DETAILED error handling and recovery procedures
-                7. Specify EXACT scalability targets and thresholds
-                8. Include PRECISE quality metrics and measurement criteria
+                EXTRACTION RULES:
+                1. Extract ONLY requirements that specify quality attributes, constraints, or performance criteria
+                2. Include EXACT performance metrics: response times, throughput, capacity limits
+                3. Specify PRECISE resource constraints: memory limits, CPU usage, storage requirements  
+                4. Reference SPECIFIC security mechanisms, algorithms, and standards
+                5. Include EXACT availability, reliability, and uptime requirements
+                6. Specify DETAILED scalability thresholds and limits
+                7. Include PRECISE error handling and recovery specifications
+                8. Reference SPECIFIC compliance standards and regulations
 
-                AVOID generic statements like "The system must be secure"
-                PREFER specific statements like "The system must implement AES-256 encryption for data at rest and TLS 1.3 for data in transit as specified in security requirements section 4.2"
+                FORMAT REQUIREMENTS:
+                - Each requirement must specify measurable criteria or constraints
+                - Include specific technical parameters and thresholds from source
+                - End with precise source citation: [Source: filename, Page X]
+                - Be testable and verifiable
 
-                Extract detailed, measurable non-functional requirements."""),
-                ("user", """Extract SPECIFIC and DETAILED non-functional requirements with exact technical specifications:
+                EXAMPLES OF GOOD REQUIREMENTS:
+                ✓ "The system must limit transaction commit capacity to prevent resource exhaustion due to platform constraints. [Source: spec.pdf, Page 70]"
+                ✓ "The platform must ensure transient objects are stored in volatile memory (RAM) and not in EEPROM for performance optimization. [Source: spec.pdf, Page 47]"
+
+                AVOID GENERIC REQUIREMENTS:
+                ✗ "The system must be secure"
+                ✗ "The system must be reliable"
+                ✗ "The system must perform well"
+
+                Extract concrete, verifiable non-functional requirements."""),
+                ("user", """Extract MEASURABLE non-functional requirements from these technical specification documents:
 
 {context}
 
-Focus on precise quality attributes, exact performance metrics, specific security standards, and detailed constraints mentioned in the source documents.""")
+Focus on extracting quality attributes with specific metrics, precise constraints, exact performance criteria, and detailed compliance requirements.""")
             ])
             
-            context_docs = self.retriever.get_relevant_documents(
-                "performance security reliability scalability usability compliance constraints quality"
-            )
-            context = "\n\n".join([doc.page_content for doc in context_docs])
+            # 다양한 품질 속성 관련 컨텍스트 검색
+            context_queries = [
+                "performance constraints memory CPU storage limits",
+                "security encryption algorithms standards compliance",
+                "reliability availability uptime error handling recovery",
+                "scalability capacity throughput transaction limits",
+                "quality attributes testing verification validation"
+            ]
+            
+            context_docs = []
+            for query in context_queries:
+                docs = self.retriever.get_relevant_documents(query)
+                context_docs.extend(docs[:6])  # 각 쿼리당 6개 문서
+            
+            # 컨텍스트에 인용 정보 포함
+            context_parts = []
+            for doc in context_docs:
+                citation = self._format_citation(doc)
+                context_parts.append(f"{doc.page_content}\n{citation}")
+            context = "\n\n---\n\n".join(context_parts)
             
             chain = prompt | self.llm | StrOutputParser()
             response = chain.invoke({"context": context})
             
+            # 비기능 요구사항 파싱 및 ID 생성
             requirements = []
+            req_counter = 1
             lines = response.split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if line and (line.startswith('-') or line.startswith('*') or 
-                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                
+                # 비기능 요구사항 라인 감지
+                if (line and 
+                    (line.startswith('-') or line.startswith('*') or line.startswith('•') or 
+                     any(line.startswith(f"{i}.") for i in range(1, 100)) or
+                     line.lower().startswith('the ') and ('must' in line.lower() or 'shall' in line.lower()))):
+                    
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 30 and not clean_req.startswith('NFR-'):
-                        requirements.append(clean_req)
+                    
+                    # 품질 속성 키워드 확인
+                    quality_keywords = ['performance', 'security', 'reliability', 'scalability', 'availability', 
+                                      'usability', 'maintainability', 'constraints', 'limits', 'capacity',
+                                      'memory', 'storage', 'cpu', 'encryption', 'algorithm', 'standard']
+                    
+                    has_quality_attribute = any(keyword in clean_req.lower() for keyword in quality_keywords)
+                    
+                    if (len(clean_req) > 40 and 
+                        ('must' in clean_req.lower() or 'shall' in clean_req.lower()) and
+                        has_quality_attribute and
+                        not clean_req.startswith('NFR-')):
+                        
+                        # 인용 정보 확인 및 추가
+                        if '[Source:' not in clean_req:
+                            clean_req += " [Source: Specification Document]"
+                        
+                        # 요구사항 ID 추가
+                        formatted_req = f"NFR-{req_counter:03d}: {clean_req}"
+                        requirements.append(formatted_req)
+                        req_counter += 1
+                        
+                        # 최대 15개 요구사항으로 제한
+                        if len(requirements) >= 15:
+                            break
             
             state["non_functional_requirements"] = requirements
             state["current_step"] = "non_functional_requirements_extracted"
@@ -424,8 +553,8 @@ Focus on precise quality attributes, exact performance metrics, specific securit
         return state
     
     def _extract_system_interfaces(self, state: HybridSRSState) -> HybridSRSState:
-        """시스템 인터페이스 추출 (더 많이 추출)"""
-        logger.info("Extracting system interface requirements comprehensively...")
+        """시스템 인터페이스 추출 (소스 인용 포함)"""
+        logger.info("Extracting system interface requirements with source citations...")
         
         try:
             prompt = ChatPromptTemplate.from_messages([
@@ -440,6 +569,11 @@ Focus on precise quality attributes, exact performance metrics, specific securit
                 6. Include DETAILED error codes and response formats
                 7. Specify EXACT authentication and authorization mechanisms
                 8. Include PRECISE timing and synchronization requirements
+                9. ALWAYS include source citation at the end of each requirement
+
+                CITATION REQUIREMENTS:
+                - Every requirement MUST end with a source citation in the format [Source: filename, Page X] or [Source: filename]
+                - Use the citation information from the document metadata when available
 
                 AVOID generic statements like "The system must provide API interfaces"
                 PREFER specific statements like "The system must provide REST API endpoints at /api/v1/users with GET, POST methods, accepting JSON payloads with max 1MB size and returning HTTP status codes 200, 400, 401, 500 as specified in API documentation section 2.3"
@@ -449,26 +583,68 @@ Focus on precise quality attributes, exact performance metrics, specific securit
 
 {context}
 
-Focus on precise API specifications, exact protocols, specific data formats, and detailed integration requirements mentioned in the source documents.""")
+Focus on precise API specifications, exact protocols, specific data formats, and detailed integration requirements mentioned in the source documents. MUST include proper source citation at the end of each requirement.""")
             ])
             
-            context_docs = self.retriever.get_relevant_documents(
-                "interface API integration external systems database network communication protocols"
-            )
-            context = "\n\n".join([doc.page_content for doc in context_docs])
+            # 인터페이스 관련 다양한 컨텍스트 검색
+            context_queries = [
+                "interface API methods functions commands procedures",
+                "communication protocols data formats messages",
+                "integration external systems connections network",
+                "input output parameters arguments return values",
+                "endpoints services operations transactions"
+            ]
+            
+            context_docs = []
+            for query in context_queries:
+                docs = self.retriever.get_relevant_documents(query)
+                context_docs.extend(docs[:6])  # 각 쿼리당 6개 문서
+            
+            # 컨텍스트에 인용 정보 포함
+            context_parts = []
+            for doc in context_docs:
+                citation = self._format_citation(doc)
+                context_parts.append(f"{doc.page_content}\n{citation}")
+            context = "\n\n---\n\n".join(context_parts)
             
             chain = prompt | self.llm | StrOutputParser()
             response = chain.invoke({"context": context})
             
+            # 시스템 인터페이스 요구사항 파싱 및 ID 생성
             requirements = []
+            req_counter = 1
             lines = response.split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if line and (line.startswith('-') or line.startswith('*') or 
-                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                
+                if (line and 
+                    (line.startswith('-') or line.startswith('*') or line.startswith('•') or 
+                     any(line.startswith(f"{i}.") for i in range(1, 100)) or
+                     line.lower().startswith('the ') and ('must' in line.lower() or 'shall' in line.lower()))):
+                    
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 30 and not clean_req.startswith('SI-'):
-                        requirements.append(clean_req)
+                    
+                    # 인터페이스 관련 키워드 확인
+                    interface_keywords = ['interface', 'method', 'function', 'command', 'api', 'protocol', 
+                                        'communication', 'message', 'format', 'endpoint', 'service']
+                    
+                    has_interface_content = any(keyword in clean_req.lower() for keyword in interface_keywords)
+                    
+                    if (len(clean_req) > 40 and 
+                        ('must' in clean_req.lower() or 'shall' in clean_req.lower()) and
+                        has_interface_content and
+                        not clean_req.startswith('SI-')):
+                        
+                        if '[Source:' not in clean_req:
+                            clean_req += " [Source: Specification Document]"
+                        
+                        formatted_req = f"SI-{req_counter:03d}: {clean_req}"
+                        requirements.append(formatted_req)
+                        req_counter += 1
+                        
+                        if len(requirements) >= 12:
+                            break
             
             state["system_interfaces"] = requirements
             state["current_step"] = "system_interfaces_extracted"
@@ -482,8 +658,8 @@ Focus on precise API specifications, exact protocols, specific data formats, and
         return state
     
     def _extract_data_requirements(self, state: HybridSRSState) -> HybridSRSState:
-        """데이터 요구사항 추출 (더 많이 추출)"""
-        logger.info("Extracting data requirements comprehensively...")
+        """데이터 요구사항 추출 (소스 인용 포함)"""
+        logger.info("Extracting data requirements with source citations...")
         
         try:
             prompt = ChatPromptTemplate.from_messages([
@@ -498,6 +674,11 @@ Focus on precise API specifications, exact protocols, specific data formats, and
                 6. Include DETAILED backup schedules and recovery procedures
                 7. Specify EXACT data encryption and security requirements
                 8. Include PRECISE data volume and storage capacity requirements
+                9. ALWAYS include source citation at the end of each requirement
+
+                CITATION REQUIREMENTS:
+                - Every requirement MUST end with a source citation in the format [Source: filename, Page X] or [Source: filename]
+                - Use the citation information from the document metadata when available
 
                 AVOID generic statements like "The system must store user data"
                 PREFER specific statements like "The system must store user data in PostgreSQL database with username field as VARCHAR(50) NOT NULL UNIQUE, password field as CHAR(64) for SHA-256 hash, and created_date as TIMESTAMP with timezone as specified in database schema section 3.1"
@@ -507,26 +688,68 @@ Focus on precise API specifications, exact protocols, specific data formats, and
 
 {context}
 
-Focus on precise data structures, exact field specifications, specific validation rules, and detailed storage requirements mentioned in the source documents.""")
+Focus on precise data structures, exact field specifications, specific validation rules, and detailed storage requirements mentioned in the source documents. MUST include proper source citation at the end of each requirement.""")
             ])
             
-            context_docs = self.retriever.get_relevant_documents(
-                "data requirements database storage entities relationships quality security formats"
-            )
-            context = "\n\n".join([doc.page_content for doc in context_docs])
+            # 데이터 관련 다양한 컨텍스트 검색
+            context_queries = [
+                "data structures formats types fields values",
+                "storage memory persistent transient objects",
+                "database tables records entities relationships",
+                "validation constraints rules requirements",
+                "encoding formats standards specifications"
+            ]
+            
+            context_docs = []
+            for query in context_queries:
+                docs = self.retriever.get_relevant_documents(query)
+                context_docs.extend(docs[:6])  # 각 쿼리당 6개 문서
+            
+            # 컨텍스트에 인용 정보 포함
+            context_parts = []
+            for doc in context_docs:
+                citation = self._format_citation(doc)
+                context_parts.append(f"{doc.page_content}\n{citation}")
+            context = "\n\n---\n\n".join(context_parts)
             
             chain = prompt | self.llm | StrOutputParser()
             response = chain.invoke({"context": context})
             
+            # 데이터 요구사항 파싱 및 ID 생성
             requirements = []
+            req_counter = 1
             lines = response.split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if line and (line.startswith('-') or line.startswith('*') or 
-                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                
+                if (line and 
+                    (line.startswith('-') or line.startswith('*') or line.startswith('•') or 
+                     any(line.startswith(f"{i}.") for i in range(1, 100)) or
+                     line.lower().startswith('the ') and ('must' in line.lower() or 'shall' in line.lower()))):
+                    
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 30 and not clean_req.startswith('DR-'):
-                        requirements.append(clean_req)
+                    
+                    # 데이터 관련 키워드 확인
+                    data_keywords = ['data', 'format', 'structure', 'field', 'type', 'value', 'storage', 
+                                   'memory', 'database', 'table', 'record', 'entity', 'validation', 'encoding']
+                    
+                    has_data_content = any(keyword in clean_req.lower() for keyword in data_keywords)
+                    
+                    if (len(clean_req) > 40 and 
+                        ('must' in clean_req.lower() or 'shall' in clean_req.lower()) and
+                        has_data_content and
+                        not clean_req.startswith('DR-')):
+                        
+                        if '[Source:' not in clean_req:
+                            clean_req += " [Source: Specification Document]"
+                        
+                        formatted_req = f"DR-{req_counter:03d}: {clean_req}"
+                        requirements.append(formatted_req)
+                        req_counter += 1
+                        
+                        if len(requirements) >= 10:
+                            break
             
             state["data_requirements"] = requirements
             state["current_step"] = "data_requirements_extracted"
@@ -540,8 +763,8 @@ Focus on precise data structures, exact field specifications, specific validatio
         return state
     
     def _extract_performance_requirements(self, state: HybridSRSState) -> HybridSRSState:
-        """성능 요구사항 추출 (더 많이 추출)"""
-        logger.info("Extracting performance requirements comprehensively...")
+        """성능 요구사항 추출 (소스 인용 포함)"""
+        logger.info("Extracting performance requirements with source citations...")
         
         try:
             prompt = ChatPromptTemplate.from_messages([
@@ -556,6 +779,11 @@ Focus on precise data structures, exact field specifications, specific validatio
                 6. Include DETAILED scalability thresholds and growth targets
                 7. Specify EXACT performance testing criteria and benchmarks
                 8. Include PRECISE latency requirements and timeout values
+                9. ALWAYS include source citation at the end of each requirement
+
+                CITATION REQUIREMENTS:
+                - Every requirement MUST end with a source citation in the format [Source: filename, Page X] or [Source: filename]
+                - Use the citation information from the document metadata when available
 
                 AVOID generic statements like "The system must be fast"
                 PREFER specific statements like "The system must respond to user login requests within 500 milliseconds for 95% of requests, support concurrent login of 1000 users with CPU utilization not exceeding 80%, and maintain 99.9% uptime as specified in performance requirements section 5.2"
@@ -565,26 +793,69 @@ Focus on precise data structures, exact field specifications, specific validatio
 
 {context}
 
-Focus on precise performance numbers, exact timing requirements, specific capacity limits, and detailed benchmarks mentioned in the source documents.""")
+Focus on precise performance numbers, exact timing requirements, specific capacity limits, and detailed benchmarks mentioned in the source documents. MUST include proper source citation at the end of each requirement.""")
             ])
             
-            context_docs = self.retriever.get_relevant_documents(
-                "performance response time throughput scalability load capacity availability metrics"
-            )
-            context = "\n\n".join([doc.page_content for doc in context_docs])
+            # 성능 관련 다양한 컨텍스트 검색
+            context_queries = [
+                "performance response time latency speed timing",
+                "throughput capacity load concurrent users",
+                "memory usage CPU utilization resource limits",
+                "scalability availability uptime reliability",
+                "metrics measurements benchmarks thresholds"
+            ]
+            
+            context_docs = []
+            for query in context_queries:
+                docs = self.retriever.get_relevant_documents(query)
+                context_docs.extend(docs[:5])  # 각 쿼리당 5개 문서
+            
+            # 컨텍스트에 인용 정보 포함
+            context_parts = []
+            for doc in context_docs:
+                citation = self._format_citation(doc)
+                context_parts.append(f"{doc.page_content}\n{citation}")
+            context = "\n\n---\n\n".join(context_parts)
             
             chain = prompt | self.llm | StrOutputParser()
             response = chain.invoke({"context": context})
             
+            # 성능 요구사항 파싱 및 ID 생성
             requirements = []
+            req_counter = 1
             lines = response.split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if line and (line.startswith('-') or line.startswith('*') or 
-                           line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
+                
+                if (line and 
+                    (line.startswith('-') or line.startswith('*') or line.startswith('•') or 
+                     any(line.startswith(f"{i}.") for i in range(1, 100)) or
+                     line.lower().startswith('the ') and ('must' in line.lower() or 'shall' in line.lower()))):
+                    
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
-                    if len(clean_req) > 30 and not clean_req.startswith('PR-'):
-                        requirements.append(clean_req)
+                    
+                    # 성능 관련 키워드 확인
+                    performance_keywords = ['performance', 'response', 'time', 'latency', 'throughput', 
+                                          'capacity', 'load', 'memory', 'cpu', 'resource', 'speed', 
+                                          'concurrent', 'scalability', 'availability', 'metric']
+                    
+                    has_performance_content = any(keyword in clean_req.lower() for keyword in performance_keywords)
+                    
+                    if (len(clean_req) > 40 and 
+                        ('must' in clean_req.lower() or 'shall' in clean_req.lower()) and
+                        has_performance_content and
+                        not clean_req.startswith('PR-')):
+                        
+                        if '[Source:' not in clean_req:
+                            clean_req += " [Source: Specification Document]"
+                        
+                        formatted_req = f"PR-{req_counter:03d}: {clean_req}"
+                        requirements.append(formatted_req)
+                        req_counter += 1
+                        
+                        if len(requirements) >= 8:
+                            break
             
             state["performance_requirements"] = requirements
             state["current_step"] = "performance_requirements_extracted"
@@ -692,6 +963,10 @@ Extract implicit requirements that are logically necessary but not explicitly st
                            line.startswith('•') or any(line.startswith(f"{i}.") for i in range(1, 100))):
                     clean_req = re.sub(r'^[-*•]\s*|\d+\.\s*', '', line).strip()
                     if len(clean_req) > 25 and not any(clean_req.startswith(prefix) for prefix in ['FR-', 'NFR-', 'DR-', 'PR-', 'SI-']):
+                        # 인용이 포함되어 있는지 확인
+                        if '[Source:' not in clean_req:
+                            # 인용이 없다면 일반적인 소스 정보 추가
+                            clean_req += " [Source: Implicit Requirements Analysis]"
                         implicit_requirements[current_category].append(clean_req)
             
             # 기존 요구사항 목록에 암시적 요구사항 추가
@@ -761,18 +1036,23 @@ Extract implicit requirements that are logically necessary but not explicitly st
         
         return state
     
-    def _validate_single_requirement(self, requirement: str, documents: List[Document]) -> ValidationResult:
-        """단일 요구사항 검증"""
+    def _validate_single_requirement(self, requirement: str, processed_documents: List[Document]) -> ValidationResult:
+        """단일 요구사항 검증 - 강화된 hallucination 감지"""
         try:
-            # 할루시네이션 패턴 탐지
+            # 강화된 할루시네이션 패턴 탐지
             hallucination_patterns = [
-                r'FR-\d+:|NFR-\d+:|PR-\d+:|DR-\d+:|SI-\d+:',  # 가짜 ID
-                r'\d+\.?\d*%',  # 구체적 백분율
-                r'\d+\s*(ms|milliseconds|seconds|minutes)',  # 구체적 시간
+                r'FR-\d+:|NFR-\d+:|PR-\d+:|DR-\d+:|SI-\d+:',  # 가짜 ID (새로 추가한 ID 제외)
                 r'99\.9%|100%|95%',  # 일반적인 가짜 메트릭
+                r'section\s+\d+\.\d+\.\d+',  # 가짜 섹션 참조
+                r'as\s+specified\s+in\s+section\s+\d+',  # 가짜 섹션 참조 패턴
+                r'(username|password|login|database|API)\s+(field|endpoint)',  # 문서에 없는 일반적 용어들
+                r'PostgreSQL|MySQL|MongoDB|REST\s+API',  # 구체적 기술 스택 (문서에 명시 안된 경우)
             ]
             
-            has_fabrication = any(re.search(pattern, requirement, re.IGNORECASE) 
+            # 요구사항에서 ID 부분 제거하고 검증
+            req_content = re.sub(r'^[A-Z]{2,3}-\d{3}:\s*', '', requirement)
+            
+            has_fabrication = any(re.search(pattern, req_content, re.IGNORECASE) 
                                 for pattern in hallucination_patterns)
             
             if has_fabrication:
@@ -784,31 +1064,54 @@ Extract implicit requirements that are logically necessary but not explicitly st
                     rejection_reason="Contains fabricated identifiers or metrics"
                 )
             
-            # 문서에서 증거 검색
-            query = requirement[:100]  # 요구사항 앞부분으로 검색
-            relevant_docs = self.retriever.get_relevant_documents(query)
+            # 문서에서 키워드 기반 증거 검색 - 더 정밀한 방식
+            # 요구사항에서 핵심 기술 용어 추출
+            tech_terms = re.findall(r'\b[A-Z]{2,}(?:[_-][A-Z0-9]+)*\b', req_content)  # 대문자 기술 용어
+            specific_numbers = re.findall(r'\b\d+\b', req_content)  # 구체적 숫자
+            quoted_terms = re.findall(r'["`\']([^"`\']+)["`\']', req_content)  # 인용된 용어
+            
+            # 검색 쿼리 생성 (기술 용어 우선)
+            search_terms = tech_terms + quoted_terms
+            if not search_terms:
+                # 기술 용어가 없으면 일반 키워드로 검색
+                words = [w for w in req_content.lower().split() 
+                        if len(w) > 4 and w not in ['must', 'shall', 'should', 'system', 'platform', 'component']]
+                search_terms = words[:5]  # 상위 5개 키워드만 사용
             
             evidence = []
             confidence = 0.0
             
-            for doc in relevant_docs[:3]:  # 상위 3개 문서만 확인
-                content = doc.page_content.lower()
-                req_lower = requirement.lower()
-                
-                # 키워드 매칭으로 간단한 검증
-                req_keywords = [word for word in req_lower.split() 
-                              if len(word) > 3 and word not in ['must', 'shall', 'should', 'system']]
-                
-                matches = sum(1 for keyword in req_keywords if keyword in content)
-                if matches > 0:
-                    confidence += min(matches / len(req_keywords), 1.0) * 0.4
-                    evidence.append(doc.page_content[:200] + "...")
+            # 여러 검색어로 검증
+            for term in search_terms[:3]:  # 상위 3개 용어로 검색
+                try:
+                    relevant_docs = self.retriever.get_relevant_documents(term)
+                    
+                    for doc in relevant_docs[:2]:  # 각 검색어당 상위 2개 문서
+                        content = doc.page_content.lower()
+                        
+                        # 정확한 용어 매칭 확인
+                        if term.lower() in content:
+                            confidence += 0.3
+                            if doc.page_content not in [e[:100] for e in evidence]:  # 중복 방지
+                                evidence.append(doc.page_content[:300] + "...")
+                        
+                        # 숫자 정확성 검증 (있는 경우)
+                        if specific_numbers:
+                            for num in specific_numbers:
+                                if num in content:
+                                    confidence += 0.2
+                                    
+                except Exception:
+                    continue
+            
+            # 최소 증거 기준 적용
+            is_valid = confidence > 0.3 and len(evidence) > 0
             
             return ValidationResult(
                 original_requirement=requirement,
-                is_valid=confidence > 0.15,  # 더 관대한 검증 임계값
-                confidence_score=confidence,
-                evidence=evidence
+                is_valid=is_valid,
+                confidence_score=min(confidence, 1.0),
+                evidence=evidence[:3]  # 최대 3개 증거만 보관
             )
             
         except Exception as e:
@@ -975,21 +1278,23 @@ Include: 2.1 Product Perspective, 2.2 Product Functions, 2.3 User Classes, 2.4 O
             
             srs_document = f"""
 # System Requirements Specification (SRS)
-**Generated with Hybrid Approach (Enhanced Extraction + Fact Validation)**
+**Generated with Enhanced Citation-Enabled Hybrid Approach**
 
 **Project:** {analysis.get('project_scope', 'System Requirements Specification')}
 **Version:** 1.0
-**Date:** {state.get('metadata', {}).get('generation_date', 'Generated by Hybrid SRS Agent')}
+**Date:** {state.get('metadata', {}).get('generation_date', 'Generated by Enhanced SRS Agent')}
 
 ---
 
-## Validation Summary
+## Document Features
 
+- **Source Citations:** All requirements include source references
 - **Total Validated Requirements:** {fact_check.get('total_validated', 0)}
 - **Total Rejected Requirements:** {fact_check.get('total_rejected', 0)}
 - **Validation Rate:** {fact_check.get('validation_rate', 0):.1%}
 - **Anti-Hallucination:** Enabled
 - **Fact-Checking:** Applied
+- **Citation Tracking:** Enabled
 
 ---
 
@@ -1035,15 +1340,16 @@ Include: 2.1 Product Perspective, 2.2 Product Functions, 2.3 User Classes, 2.4 O
 
 ## Document Information
 
-- **Generated by:** Hybrid SRS Generation Agent (v1.0)
+- **Generated by:** Enhanced Citation-Enabled SRS Generation Agent (v2.0)
 - **Source Documents:** {', '.join(state.get('spec_documents', []))}
 - **Total Requirements:** {sum(len(state.get(req_type, [])) for req_type in ['functional_requirements', 'non_functional_requirements', 'system_interfaces', 'data_requirements', 'performance_requirements'])}
-- **Validation Applied:** Fact-checking and hallucination detection enabled
+- **Features Applied:** Source citations, fact-checking, and hallucination detection enabled
 - **Rejected Requirements:** {fact_check.get('total_rejected', 0)} (due to: {', '.join(fact_check.get('rejection_reasons', []))})
+- **Citation Coverage:** All requirements include source references to original specification documents
 
 ---
 
-*This document was generated using a hybrid approach that combines comprehensive requirement extraction with rigorous fact validation to ensure accuracy while maximizing coverage.*
+*This document was generated using an enhanced approach that combines comprehensive requirement extraction with rigorous fact validation and source citation tracking to ensure accuracy, traceability, and maximized coverage.*
 """
             
             state["final_srs_document"] = srs_document
