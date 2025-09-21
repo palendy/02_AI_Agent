@@ -1,0 +1,381 @@
+"""
+AI Agent Chatbot
+GitHub 문서를 기반으로 한 지능형 챗봇
+"""
+
+import logging
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+
+from config import get_config
+from model.vector_store import DocumentVectorStore
+from model.github_extractor import GitHubDocumentExtractor
+from model.langgraph_workflow import CorrectiveRAGWorkflow
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class AIChatbot:
+    """AI Agent Chatbot 클래스"""
+    
+    def __init__(self, 
+                 collection_name: str = "github_documents",
+                 persist_directory: str = "./chroma_db"):
+        """
+        AIChatbot 초기화
+        
+        Args:
+            collection_name: 벡터 스토어 컬렉션 이름
+            persist_directory: 벡터 DB 저장 디렉토리
+        """
+        self.config = get_config()
+        self.collection_name = collection_name
+        self.persist_directory = persist_directory
+        
+        # 컴포넌트 초기화
+        self.vector_store = None
+        self.github_extractor = None
+        self.workflow = None
+        
+        # 대화 기록
+        self.conversation_history = []
+        
+        # 초기화 실행
+        self._initialize_components()
+    
+    def _initialize_components(self):
+        """컴포넌트 초기화"""
+        try:
+            logger.info("AI Chatbot 컴포넌트 초기화 중...")
+            
+            # 벡터 스토어 초기화
+            self.vector_store = DocumentVectorStore(
+                collection_name=self.collection_name,
+                persist_directory=self.persist_directory
+            )
+            logger.info("벡터 스토어 초기화 완료")
+            
+            # GitHub Extractor 초기화
+            extractor_config = self.config.get_github_extractor_config()
+            self.github_extractor = GitHubDocumentExtractor(**extractor_config)
+            logger.info("GitHub Extractor 초기화 완료")
+            
+            # LangGraph 워크플로우 초기화
+            self.workflow = CorrectiveRAGWorkflow(self.vector_store)
+            logger.info("LangGraph 워크플로우 초기화 완료")
+            
+            logger.info("AI Chatbot 초기화 완료")
+            
+        except Exception as e:
+            logger.error(f"컴포넌트 초기화 실패: {e}")
+            raise
+    
+    def add_github_repository(self, repository_url: str) -> Dict[str, Any]:
+        """
+        GitHub repository 추가 및 문서 추출
+        
+        Args:
+            repository_url: GitHub repository URL
+            
+        Returns:
+            Dict[str, Any]: 처리 결과
+        """
+        try:
+            logger.info(f"GitHub repository 추가 중: {repository_url}")
+            
+            # Repository 정보 조회
+            repo_info = self.github_extractor.get_repository_info(repository_url)
+            logger.info(f"Repository 정보: {repo_info.get('full_name', 'Unknown')}")
+            
+            # 문서 추출
+            documents = self.github_extractor.extract_documents(
+                repository_url,
+                split_documents=True
+            )
+            
+            if not documents:
+                return {
+                    "success": False,
+                    "message": "추출된 문서가 없습니다.",
+                    "repository_url": repository_url,
+                    "documents_count": 0
+                }
+            
+            # 벡터 스토어에 추가
+            doc_ids = self.vector_store.add_github_documents(repository_url, documents)
+            
+            logger.info(f"Repository 추가 완료: {len(doc_ids)}개 문서")
+            
+            return {
+                "success": True,
+                "message": f"Repository가 성공적으로 추가되었습니다.",
+                "repository_url": repository_url,
+                "repository_name": repo_info.get('full_name', 'Unknown'),
+                "documents_count": len(doc_ids),
+                "repository_info": repo_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Repository 추가 실패: {e}")
+            return {
+                "success": False,
+                "message": f"Repository 추가 실패: {str(e)}",
+                "repository_url": repository_url,
+                "documents_count": 0
+            }
+    
+    def add_multiple_repositories(self, repository_urls: List[str]) -> Dict[str, Any]:
+        """
+        여러 GitHub repository 추가
+        
+        Args:
+            repository_urls: GitHub repository URL 목록
+            
+        Returns:
+            Dict[str, Any]: 처리 결과
+        """
+        try:
+            logger.info(f"여러 Repository 추가 중: {len(repository_urls)}개")
+            
+            results = []
+            success_count = 0
+            total_documents = 0
+            
+            for url in repository_urls:
+                result = self.add_github_repository(url)
+                results.append(result)
+                
+                if result["success"]:
+                    success_count += 1
+                    total_documents += result["documents_count"]
+            
+            logger.info(f"여러 Repository 추가 완료: {success_count}/{len(repository_urls)} 성공")
+            
+            return {
+                "success": success_count > 0,
+                "message": f"{success_count}개 Repository가 성공적으로 추가되었습니다.",
+                "total_repositories": len(repository_urls),
+                "success_count": success_count,
+                "total_documents": total_documents,
+                "results": results
+            }
+            
+        except Exception as e:
+            logger.error(f"여러 Repository 추가 실패: {e}")
+            return {
+                "success": False,
+                "message": f"여러 Repository 추가 실패: {str(e)}",
+                "total_repositories": len(repository_urls),
+                "success_count": 0,
+                "total_documents": 0,
+                "results": []
+            }
+    
+    def load_configured_repositories(self) -> Dict[str, Any]:
+        """
+        설정된 repository들을 자동으로 로드
+        
+        Returns:
+            Dict[str, Any]: 처리 결과
+        """
+        try:
+            repositories = self.config.github_repositories
+            
+            if not repositories:
+                return {
+                    "success": False,
+                    "message": "설정된 repository가 없습니다.",
+                    "repositories": []
+                }
+            
+            logger.info(f"설정된 Repository 로드 중: {len(repositories)}개")
+            
+            return self.add_multiple_repositories(repositories)
+            
+        except Exception as e:
+            logger.error(f"설정된 Repository 로드 실패: {e}")
+            return {
+                "success": False,
+                "message": f"설정된 Repository 로드 실패: {str(e)}",
+                "repositories": []
+            }
+    
+    def chat(self, question: str) -> Dict[str, Any]:
+        """
+        챗봇과 대화
+        
+        Args:
+            question: 사용자 질문
+            
+        Returns:
+            Dict[str, Any]: 답변 결과
+        """
+        try:
+            logger.info(f"질문 처리 중: {question}")
+            
+            # 질문 처리
+            result = self.workflow.process_question(question)
+            
+            # 대화 기록에 추가
+            conversation_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "question": question,
+                "answer": result["answer"],
+                "search_source": result["search_source"],
+                "relevance_score": result["relevance_score"],
+                "retry_count": result["retry_count"],
+                "documents_used": result["documents_used"]
+            }
+            
+            self.conversation_history.append(conversation_entry)
+            
+            # 최근 대화 기록 유지 (최대 100개)
+            if len(self.conversation_history) > 100:
+                self.conversation_history = self.conversation_history[-100:]
+            
+            logger.info("질문 처리 완료")
+            
+            return {
+                "success": True,
+                "question": question,
+                "answer": result["answer"],
+                "search_source": result["search_source"],
+                "relevance_score": result["relevance_score"],
+                "retry_count": result["retry_count"],
+                "documents_used": result["documents_used"],
+                "timestamp": conversation_entry["timestamp"],
+                "error_message": result.get("error_message", "")
+            }
+            
+        except Exception as e:
+            logger.error(f"질문 처리 실패: {e}")
+            return {
+                "success": False,
+                "question": question,
+                "answer": f"질문 처리 중 오류가 발생했습니다: {str(e)}",
+                "search_source": "error",
+                "relevance_score": 0.0,
+                "retry_count": 0,
+                "documents_used": 0,
+                "timestamp": datetime.now().isoformat(),
+                "error_message": str(e)
+            }
+    
+    def get_conversation_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        대화 기록 조회
+        
+        Args:
+            limit: 조회할 대화 수
+            
+        Returns:
+            List[Dict[str, Any]]: 대화 기록
+        """
+        return self.conversation_history[-limit:] if self.conversation_history else []
+    
+    def clear_conversation_history(self):
+        """대화 기록 초기화"""
+        self.conversation_history = []
+        logger.info("대화 기록 초기화 완료")
+    
+    def get_system_info(self) -> Dict[str, Any]:
+        """
+        시스템 정보 조회
+        
+        Returns:
+            Dict[str, Any]: 시스템 정보
+        """
+        try:
+            # 벡터 스토어 정보
+            vector_store_info = self.vector_store.get_collection_info()
+            
+            # 워크플로우 정보
+            workflow_info = self.workflow.get_workflow_info()
+            
+            # 설정 정보
+            config_info = {
+                "model_name": self.config.default_model_name,
+                "embedding_model": self.config.embedding_model,
+                "max_retries": self.config.max_retries,
+                "relevance_threshold": self.config.relevance_threshold,
+                "max_search_results": self.config.max_search_results,
+                "chunk_size": self.config.chunk_size,
+                "chunk_overlap": self.config.chunk_overlap
+            }
+            
+            return {
+                "vector_store": vector_store_info,
+                "workflow": workflow_info,
+                "config": config_info,
+                "conversation_count": len(self.conversation_history),
+                "initialized": all([
+                    self.vector_store is not None,
+                    self.github_extractor is not None,
+                    self.workflow is not None
+                ])
+            }
+            
+        except Exception as e:
+            logger.error(f"시스템 정보 조회 실패: {e}")
+            return {
+                "error": str(e),
+                "initialized": False
+            }
+    
+    def reset_system(self) -> bool:
+        """
+        시스템 초기화
+        
+        Returns:
+            bool: 초기화 성공 여부
+        """
+        try:
+            logger.info("시스템 초기화 중...")
+            
+            # 벡터 스토어 초기화
+            if self.vector_store:
+                self.vector_store.reset_collection()
+            
+            # 대화 기록 초기화
+            self.clear_conversation_history()
+            
+            logger.info("시스템 초기화 완료")
+            return True
+            
+        except Exception as e:
+            logger.error(f"시스템 초기화 실패: {e}")
+            return False
+
+
+# 사용 예제
+if __name__ == "__main__":
+    # 챗봇 초기화
+    chatbot = AIChatbot()
+    
+    # 시스템 정보 출력
+    info = chatbot.get_system_info()
+    print(f"시스템 정보: {info}")
+    
+    # 설정된 repository 로드
+    load_result = chatbot.load_configured_repositories()
+    print(f"Repository 로드 결과: {load_result}")
+    
+    # 테스트 대화
+    questions = [
+        "안녕하세요!",
+        "GitHub에서 문서를 추출하는 방법은?",
+        "이 시스템은 어떻게 작동하나요?"
+    ]
+    
+    for question in questions:
+        print(f"\n질문: {question}")
+        result = chatbot.chat(question)
+        print(f"답변: {result['answer']}")
+        print(f"검색 소스: {result['search_source']}")
+        print(f"관련성 점수: {result['relevance_score']:.3f}")
+    
+    # 대화 기록 조회
+    history = chatbot.get_conversation_history(5)
+    print(f"\n최근 대화 기록: {len(history)}개")
