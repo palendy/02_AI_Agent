@@ -1,0 +1,486 @@
+{
+  "srs_template": {
+    "metadata": {
+      "template_version": "2.0",
+      "industry_focus": "semiconductor_firmware",
+      "compliance_standards": ["ISO 26262", "IEC 61508", "DO-178C", "MISRA C", "AUTOSAR"],
+      "last_updated": "2024-01-01"
+    },
+    "document_structure": {
+      "1": {
+        "section_id": "introduction",
+        "title": "1. Introduction and Scope",
+        "subsections": {
+          "1.1": {
+            "title": "Purpose",
+            "description": "Define the purpose and objectives of the firmware system",
+            "required_elements": [
+              "System purpose statement",
+              "Target hardware platform",
+              "Primary use cases",
+              "Success criteria"
+            ]
+          },
+          "1.2": {
+            "title": "Scope",
+            "description": "Define what is included and excluded from this specification",
+            "required_elements": [
+              "In-scope components",
+              "Out-of-scope components",
+              "System boundaries",
+              "Assumptions and dependencies"
+            ]
+          },
+          "1.3": {
+            "title": "Definitions and Acronyms",
+            "description": "Define technical terms and acronyms used in the document",
+            "required_elements": [
+              "Technical definitions",
+              "Acronym list",
+              "Industry-specific terminology",
+              "Reference standards"
+            ]
+          },
+          "1.4": {
+            "title": "Document Overview",
+            "description": "Provide an overview of the document structure",
+            "required_elements": [
+              "Document organization",
+              "Reading guidelines",
+              "Related documents",
+              "Revision history"
+            ]
+          }
+        }
+      },
+      "2": {
+        "section_id": "system_overview",
+        "title": "2. System Overview",
+        "subsections": {
+          "2.1": {
+            "title": "System Context",
+            "description": "Describe the system within its operational environment",
+            "required_elements": [
+              "System architecture diagram",
+              "External interfaces",
+              "Operating environment",
+              "System constraints"
+            ]
+          },
+          "2.2": {
+            "title": "Hardware Platform",
+            "description": "Specify target hardware characteristics",
+            "required_elements": [
+              "Processor architecture",
+              "Memory specifications",
+              "I/O interfaces",
+              "Power requirements",
+              "Environmental conditions"
+            ]
+          },
+          "2.3": {
+            "title": "Software Architecture",
+            "description": "Define high-level software structure",
+            "required_elements": [
+              "Software layers",
+              "Component relationships",
+              "Data flow diagrams",
+              "Control flow",
+              "Real-time constraints"
+            ]
+          },
+          "2.4": {
+            "title": "Technology Stack",
+            "description": "Specify development tools and technologies",
+            "required_elements": [
+              "Programming languages",
+              "Development tools",
+              "Compilers and toolchain",
+              "RTOS or bare-metal",
+              "Third-party libraries"
+            ]
+          }
+        }
+      },
+      "3": {
+        "section_id": "functional_requirements",
+        "title": "3. Functional Requirements",
+        "subsections": {
+          "3.1": {
+            "title": "Core Functionality",
+            "description": "Define primary system functions",
+            "required_elements": [
+              "Main operational modes",
+              "Control algorithms",
+              "Data processing functions",
+              "User interface requirements",
+              "Configuration management"
+            ]
+          },
+          "3.2": {
+            "title": "Input/Output Processing",
+            "description": "Specify I/O handling requirements",
+            "required_elements": [
+              "Input signal processing",
+              "Output signal generation",
+              "Data acquisition",
+              "Signal conditioning",
+              "Communication protocols"
+            ]
+          },
+          "3.3": {
+            "title": "State Management",
+            "description": "Define system state handling",
+            "required_elements": [
+              "System states",
+              "State transitions",
+              "State persistence",
+              "Recovery mechanisms",
+              "Initialization sequences"
+            ]
+          },
+          "3.4": {
+            "title": "Error Handling",
+            "description": "Specify error detection and recovery",
+            "required_elements": [
+              "Error detection mechanisms",
+              "Error classification",
+              "Recovery procedures",
+              "Fault tolerance",
+              "Graceful degradation"
+            ]
+          }
+        }
+      },
+      "4": {
+        "section_id": "non_functional_requirements",
+        "title": "4. Non-Functional Requirements",
+        "subsections": {
+          "4.1": {
+            "title": "Performance Requirements",
+            "description": "Specify system performance criteria",
+            "required_elements": [
+              "Response time requirements",
+              "Throughput specifications",
+              "Resource utilization limits",
+              "Latency constraints",
+              "Jitter requirements"
+            ]
+          },
+          "4.2": {
+            "title": "Reliability Requirements",
+            "description": "Define reliability and availability criteria",
+            "required_elements": [
+              "MTBF requirements",
+              "Availability targets",
+              "Fault detection time",
+              "Recovery time objectives",
+              "Redundancy mechanisms"
+            ]
+          },
+          "4.3": {
+            "title": "Safety Requirements",
+            "description": "Specify safety-critical requirements",
+            "required_elements": [
+              "Safety integrity level (SIL)",
+              "Hazard analysis results",
+              "Safety mechanisms",
+              "Fail-safe behaviors",
+              "Safety monitoring"
+            ]
+          },
+          "4.4": {
+            "title": "Security Requirements",
+            "description": "Define cybersecurity requirements",
+            "required_elements": [
+              "Authentication mechanisms",
+              "Encryption requirements",
+              "Access control",
+              "Secure communication",
+              "Vulnerability management"
+            ]
+          }
+        }
+      },
+      "5": {
+        "section_id": "interface_requirements",
+        "title": "5. Interface Requirements",
+        "subsections": {
+          "5.1": {
+            "title": "Hardware Interfaces",
+            "description": "Specify physical interface requirements",
+            "required_elements": [
+              "Pin assignments",
+              "Signal specifications",
+              "Electrical characteristics",
+              "Mechanical constraints",
+              "Environmental conditions"
+            ]
+          },
+          "5.2": {
+            "title": "Software Interfaces",
+            "description": "Define software interface specifications",
+            "required_elements": [
+              "API specifications",
+              "Protocol definitions",
+              "Data formats",
+              "Message structures",
+              "Interface timing"
+            ]
+          },
+          "5.3": {
+            "title": "Communication Interfaces",
+            "description": "Specify communication requirements",
+            "required_elements": [
+              "Communication protocols",
+              "Network interfaces",
+              "Serial interfaces",
+              "Wireless interfaces",
+              "Bus systems"
+            ]
+          },
+          "5.4": {
+            "title": "User Interfaces",
+            "description": "Define human-machine interface requirements",
+            "required_elements": [
+              "Display requirements",
+              "Control interfaces",
+              "Diagnostic interfaces",
+              "Configuration interfaces",
+              "Status indicators"
+            ]
+          }
+        }
+      },
+      "6": {
+        "section_id": "performance_requirements",
+        "title": "6. Performance Requirements",
+        "subsections": {
+          "6.1": {
+            "title": "Real-Time Constraints",
+            "description": "Specify timing and real-time requirements",
+            "required_elements": [
+              "Hard real-time deadlines",
+              "Soft real-time requirements",
+              "Interrupt latency",
+              "Task scheduling",
+              "Priority assignments"
+            ]
+          },
+          "6.2": {
+            "title": "Resource Constraints",
+            "description": "Define resource usage limitations",
+            "required_elements": [
+              "Memory usage limits",
+              "CPU utilization targets",
+              "Power consumption limits",
+              "Storage requirements",
+              "Bandwidth constraints"
+            ]
+          },
+          "6.3": {
+            "title": "Scalability Requirements",
+            "description": "Specify scalability and extensibility",
+            "required_elements": [
+              "Modular design requirements",
+              "Configuration flexibility",
+              "Feature extensibility",
+              "Performance scaling",
+              "Hardware platform portability"
+            ]
+          }
+        }
+      },
+      "7": {
+        "section_id": "safety_security_requirements",
+        "title": "7. Safety and Security Requirements",
+        "subsections": {
+          "7.1": {
+            "title": "Functional Safety",
+            "description": "Define functional safety requirements",
+            "required_elements": [
+              "Safety integrity requirements",
+              "FMEA analysis results",
+              "Safety mechanisms design",
+              "Diagnostic coverage",
+              "Safety lifecycle compliance"
+            ]
+          },
+          "7.2": {
+            "title": "Cybersecurity",
+            "description": "Specify cybersecurity measures",
+            "required_elements": [
+              "Threat modeling results",
+              "Security controls",
+              "Cryptographic requirements",
+              "Secure development practices",
+              "Incident response procedures"
+            ]
+          },
+          "7.3": {
+            "title": "Compliance Requirements",
+            "description": "Define regulatory and standard compliance",
+            "required_elements": [
+              "Industry standards compliance",
+              "Regulatory requirements",
+              "Certification requirements",
+              "Audit requirements",
+              "Documentation standards"
+            ]
+          }
+        }
+      },
+      "8": {
+        "section_id": "validation_testing_requirements",
+        "title": "8. Validation and Testing Requirements",
+        "subsections": {
+          "8.1": {
+            "title": "Test Strategy",
+            "description": "Define overall testing approach",
+            "required_elements": [
+              "Test levels (unit, integration, system)",
+              "Test methodologies",
+              "Test environments",
+              "Test automation requirements",
+              "Test coverage criteria"
+            ]
+          },
+          "8.2": {
+            "title": "Verification Requirements",
+            "description": "Specify verification activities",
+            "required_elements": [
+              "Code reviews",
+              "Static analysis",
+              "Model checking",
+              "Formal verification",
+              "Peer reviews"
+            ]
+          },
+          "8.3": {
+            "title": "Validation Requirements",
+            "description": "Define validation testing requirements",
+            "required_elements": [
+              "Functional testing",
+              "Performance testing",
+              "Safety testing",
+              "Security testing",
+              "Environmental testing"
+            ]
+          },
+          "8.4": {
+            "title": "Acceptance Criteria",
+            "description": "Define system acceptance requirements",
+            "required_elements": [
+              "Pass/fail criteria",
+              "Performance benchmarks",
+              "Quality metrics",
+              "Reliability targets",
+              "Safety validation criteria"
+            ]
+          }
+        }
+      }
+    },
+    "requirement_templates": {
+      "functional": {
+        "id_prefix": "FR",
+        "format": "[ID] The system shall [action] [object] [condition] [performance_criteria]",
+        "attributes": [
+          "priority",
+          "verification_method",
+          "source",
+          "rationale",
+          "dependencies"
+        ]
+      },
+      "non_functional": {
+        "id_prefix": "NFR",
+        "format": "[ID] The system shall [performance_metric] [target_value] [measurement_condition]",
+        "attributes": [
+          "priority",
+          "measurement_method",
+          "acceptance_criteria",
+          "rationale"
+        ]
+      },
+      "interface": {
+        "id_prefix": "IR",
+        "format": "[ID] The [interface_type] interface shall [specification] [protocol] [performance]",
+        "attributes": [
+          "interface_type",
+          "protocol_standard",
+          "electrical_specs",
+          "timing_requirements"
+        ]
+      },
+      "safety": {
+        "id_prefix": "SR",
+        "format": "[ID] The system shall [safety_function] to [safety_goal] with [integrity_level]",
+        "attributes": [
+          "sil_level",
+          "hazard_reference",
+          "safety_mechanism",
+          "diagnostic_coverage"
+        ]
+      }
+    },
+    "quality_criteria": {
+      "completeness": {
+        "min_requirements_per_section": 3,
+        "required_attributes": ["priority", "verification_method", "rationale"],
+        "coverage_requirements": ["functional", "non_functional", "interface", "safety"]
+      },
+      "consistency": {
+        "terminology_check": true,
+        "cross_reference_check": true,
+        "requirement_numbering": true,
+        "format_compliance": true
+      },
+      "traceability": {
+        "source_traceability": true,
+        "requirement_dependencies": true,
+        "test_traceability": true,
+        "design_traceability": true
+      },
+      "testability": {
+        "verification_method_required": true,
+        "measurable_criteria": true,
+        "test_case_derivable": true,
+        "acceptance_criteria_clear": true
+      }
+    },
+    "semiconductor_specific": {
+      "power_management": {
+        "low_power_modes": ["sleep", "deep_sleep", "standby", "hibernate"],
+        "wake_up_sources": ["external_interrupt", "timer", "communication", "sensor"],
+        "power_domains": ["core", "peripherals", "memory", "analog"],
+        "voltage_levels": ["1.8V", "3.3V", "5V", "variable"]
+      },
+      "memory_management": {
+        "memory_types": ["flash", "ram", "eeprom", "cache"],
+        "memory_protection": ["mpu", "mmu", "access_control"],
+        "wear_leveling": ["flash_wear", "eeprom_wear"],
+        "memory_partitioning": ["code", "data", "stack", "heap", "config"]
+      },
+      "real_time_constraints": {
+        "interrupt_priorities": ["high", "medium", "low"],
+        "task_priorities": ["critical", "high", "normal", "low"],
+        "timing_requirements": ["hard_realtime", "soft_realtime", "periodic", "aperiodic"],
+        "determinism": ["deterministic", "bounded_jitter", "best_effort"]
+      },
+      "communication_protocols": {
+        "industrial": ["CAN", "Modbus", "EtherCAT", "PROFINET", "EtherNet/IP"],
+        "automotive": ["CAN-FD", "LIN", "FlexRay", "Ethernet AVB", "SOME/IP"],
+        "iot": ["WiFi", "Bluetooth", "LoRaWAN", "Zigbee", "6LoWPAN"],
+        "wired": ["SPI", "I2C", "UART", "USB", "Ethernet"]
+      },
+      "safety_standards": {
+        "automotive": ["ISO 26262", "ISO 21448"],
+        "industrial": ["IEC 61508", "IEC 62061", "ISO 13849"],
+        "aviation": ["DO-178C", "DO-254"],
+        "medical": ["IEC 62304", "ISO 14971"],
+        "railway": ["EN 50128", "EN 50126"]
+      }
+    }
+  }
+}

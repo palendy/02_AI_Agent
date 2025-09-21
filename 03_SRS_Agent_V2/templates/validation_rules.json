@@ -1,0 +1,278 @@
+{
+  "validation_rules": {
+    "version": "2.0",
+    "industry_focus": "semiconductor_firmware",
+    "last_updated": "2024-01-01",
+    
+    "requirement_validation": {
+      "format_rules": {
+        "requirement_structure": {
+          "pattern": "^(The system|The firmware|The device|The component)\\s+shall\\s+.+",
+          "description": "Requirements must start with proper subject and 'shall'",
+          "severity": "error",
+          "examples": [
+            "The system shall respond to interrupts within 10 microseconds",
+            "The firmware shall implement watchdog timer functionality"
+          ]
+        },
+        "requirement_id": {
+          "pattern": "^[A-Z]{2,5}-[A-Z0-9]+-\\d{3}$",
+          "description": "Requirement IDs must follow format: PREFIX-SECTION-###",
+          "severity": "error",
+          "examples": ["FR-SYS-001", "NFR-PERF-012", "SR-SAFE-005"]
+        },
+        "priority_levels": {
+          "allowed_values": ["Critical", "High", "Medium", "Low"],
+          "description": "Priority must be one of the defined levels",
+          "severity": "error"
+        },
+        "verification_methods": {
+          "allowed_values": [
+            "Testing", "Analysis", "Inspection", "Demonstration",
+            "Simulation", "Review", "Formal Verification"
+          ],
+          "description": "Verification method must be specified and valid",
+          "severity": "warning"
+        }
+      },
+      
+      "content_rules": {
+        "measurability": {
+          "description": "Requirements should contain measurable criteria",
+          "keywords": [
+            "within", "less than", "greater than", "exactly", "between",
+            "±", "maximum", "minimum", "shall not exceed", "at least"
+          ],
+          "severity": "warning"
+        },
+        "atomicity": {
+          "description": "Requirements should express single functionality",
+          "prohibited_words": ["and", "or", "also", "additionally"],
+          "context_check": true,
+          "severity": "warning"
+        },
+        "testability": {
+          "description": "Requirements must be testable/verifiable",
+          "prohibited_phrases": [
+            "user-friendly", "easy to use", "robust", "reliable",
+            "flexible", "maintainable", "as appropriate"
+          ],
+          "severity": "error"
+        },
+        "completeness": {
+          "required_attributes": [
+            "id", "text", "priority", "verification_method", "rationale"
+          ],
+          "description": "All required attributes must be present",
+          "severity": "error"
+        }
+      },
+      
+      "semiconductor_specific": {
+        "real_time_constraints": {
+          "timing_units": ["ns", "μs", "ms", "s", "nanoseconds", "microseconds", "milliseconds", "seconds"],
+          "description": "Real-time requirements must specify timing units",
+          "severity": "error"
+        },
+        "power_management": {
+          "power_states": ["active", "idle", "sleep", "deep_sleep", "standby", "hibernate"],
+          "power_units": ["mW", "μW", "nW", "mA", "μA", "nA"],
+          "description": "Power requirements must specify states and consumption",
+          "severity": "warning"
+        },
+        "safety_integrity": {
+          "sil_levels": ["SIL-1", "SIL-2", "SIL-3", "SIL-4"],
+          "required_for_safety": ["sil_level", "hazard_reference", "safety_mechanism"],
+          "description": "Safety requirements must specify integrity level",
+          "severity": "error"
+        },
+        "memory_constraints": {
+          "memory_units": ["bytes", "KB", "MB", "GB", "bits"],
+          "memory_types": ["flash", "ram", "eeprom", "cache", "stack", "heap"],
+          "description": "Memory requirements must specify type and size",
+          "severity": "warning"
+        }
+      }
+    },
+    
+    "document_validation": {
+      "structure_rules": {
+        "required_sections": [
+          "introduction", "system_overview", "functional_requirements",
+          "non_functional_requirements", "interface_requirements",
+          "validation_testing_requirements"
+        ],
+        "section_order": [
+          "introduction", "system_overview", "functional_requirements",
+          "non_functional_requirements", "interface_requirements",
+          "performance_requirements", "safety_security_requirements",
+          "validation_testing_requirements"
+        ],
+        "min_subsections_per_section": 2
+      },
+      
+      "completeness_rules": {
+        "min_requirements_per_section": {
+          "functional_requirements": 5,
+          "non_functional_requirements": 3,
+          "interface_requirements": 3,
+          "safety_security_requirements": 4,
+          "validation_testing_requirements": 3
+        },
+        "required_metadata": [
+          "project_name", "target_architecture", "safety_level",
+          "compliance_standards", "generation_timestamp"
+        ]
+      },
+      
+      "consistency_rules": {
+        "terminology_consistency": {
+          "check_definitions": true,
+          "check_acronyms": true,
+          "case_sensitivity": true
+        },
+        "cross_references": {
+          "check_internal_links": true,
+          "check_requirement_dependencies": true,
+          "check_traceability": true
+        },
+        "numbering_consistency": {
+          "sequential_numbering": true,
+          "consistent_prefixes": true,
+          "no_gaps": true
+        }
+      }
+    },
+    
+    "quality_metrics": {
+      "completeness_score": {
+        "weight": 0.25,
+        "criteria": [
+          "all_required_sections_present",
+          "minimum_requirements_met",
+          "all_attributes_specified"
+        ]
+      },
+      "consistency_score": {
+        "weight": 0.20,
+        "criteria": [
+          "terminology_consistent",
+          "formatting_consistent",
+          "numbering_consistent"
+        ]
+      },
+      "testability_score": {
+        "weight": 0.20,
+        "criteria": [
+          "verification_methods_specified",
+          "measurable_criteria_present",
+          "acceptance_criteria_clear"
+        ]
+      },
+      "traceability_score": {
+        "weight": 0.15,
+        "criteria": [
+          "source_traceability",
+          "requirement_dependencies",
+          "design_traceability"
+        ]
+      },
+      "compliance_score": {
+        "weight": 0.20,
+        "criteria": [
+          "standards_addressed",
+          "regulatory_requirements_met",
+          "industry_best_practices"
+        ]
+      }
+    },
+    
+    "compliance_standards": {
+      "ISO_26262": {
+        "automotive_safety": {
+          "required_elements": [
+            "hazard_analysis", "safety_goals", "safety_requirements",
+            "safety_mechanisms", "verification_methods"
+          ],
+          "asil_levels": ["ASIL-A", "ASIL-B", "ASIL-C", "ASIL-D"],
+          "lifecycle_phases": [
+            "concept", "system_development", "hardware_development",
+            "software_development", "integration", "verification"
+          ]
+        }
+      },
+      
+      "IEC_61508": {
+        "functional_safety": {
+          "required_elements": [
+            "safety_integrity_requirements", "safety_functions",
+            "safety_lifecycle", "verification_validation"
+          ],
+          "sil_levels": ["SIL-1", "SIL-2", "SIL-3", "SIL-4"],
+          "safety_lifecycle": [
+            "concept", "overall_scope", "hazard_analysis",
+            "overall_safety_requirements", "safety_planning"
+          ]
+        }
+      },
+      
+      "DO_178C": {
+        "avionics_software": {
+          "design_assurance_levels": ["DAL-A", "DAL-B", "DAL-C", "DAL-D", "DAL-E"],
+          "required_artifacts": [
+            "software_requirements", "software_design",
+            "source_code", "executable_code", "verification_procedures"
+          ],
+          "objectives": [
+            "requirements_compliance", "structural_coverage",
+            "verification_independence"
+          ]
+        }
+      },
+      
+      "MISRA_C": {
+        "coding_standards": {
+          "rule_categories": ["required", "advisory", "mandatory"],
+          "focus_areas": [
+            "reliability", "portability", "maintainability", "safety"
+          ],
+          "static_analysis": true
+        }
+      }
+    },
+    
+    "validation_levels": {
+      "basic": {
+        "checks": ["format_validation", "completeness_check", "basic_consistency"],
+        "threshold_score": 60,
+        "description": "Basic validation for minimum quality"
+      },
+      "standard": {
+        "checks": [
+          "format_validation", "completeness_check", "consistency_validation",
+          "testability_check", "basic_compliance"
+        ],
+        "threshold_score": 75,
+        "description": "Standard validation for production use"
+      },
+      "comprehensive": {
+        "checks": [
+          "format_validation", "completeness_check", "consistency_validation",
+          "testability_check", "traceability_check", "full_compliance",
+          "cross_reference_validation", "dependency_analysis"
+        ],
+        "threshold_score": 85,
+        "description": "Comprehensive validation for critical systems"
+      },
+      "certification_ready": {
+        "checks": [
+          "all_standard_checks", "certification_compliance",
+          "formal_verification_ready", "audit_trail_complete",
+          "full_traceability_matrix"
+        ],
+        "threshold_score": 95,
+        "description": "Ready for certification and regulatory submission"
+      }
+    }
+  }
+}
