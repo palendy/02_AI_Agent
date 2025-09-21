@@ -1,11 +1,12 @@
 # 🤖 AI Agent Chatbot
 
-GitHub 문서 기반 지능형 챗봇 시스템 - Corrective RAG + LangGraph + Streamlit
+GitHub 문서 기반 지능형 챗봇 시스템 - Corrective RAG + LangGraph + Streamlit + 채팅 히스토리
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io)
 [![LangChain](https://img.shields.io/badge/LangChain-0.1+-green.svg)](https://langchain.com)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-orange.svg)](https://openai.com)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20DB-purple.svg)](https://chromadb.com)
 
 ## 📋 목차
 
@@ -30,6 +31,7 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 - **🔍 Corrective RAG**: 문서 관련성을 자동 평가하고 쿼리를 재작성하여 정확도 향상
 - **🔄 LangGraph 워크플로우**: 복잡한 AI 에이전트 로직을 상태 기반 그래프로 관리
 - **📚 GitHub 통합**: GitHub 저장소에서 다양한 형식의 문서 자동 추출
+- **💾 채팅 히스토리**: 이전 대화를 벡터화하여 저장하고 유사한 질문에 재사용
 - **🌐 웹 인터페이스**: Streamlit 기반의 직관적인 웹 UI
 - **⚡ 실시간 처리**: 벡터 검색과 AI 모델을 활용한 빠른 응답
 
@@ -45,11 +47,14 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 - **의미 기반 검색**: 벡터 유사도 검색으로 의미적으로 관련된 문서 찾기
 - **관련성 평가**: AI가 검색된 문서의 질을 자동 평가
 - **쿼리 재작성**: 관련성이 낮을 경우 쿼리를 자동으로 개선
-- **웹 검색 폴백**: 로컬 문서에서 답을 찾지 못할 경우 웹 검색
+- **채팅 히스토리 검색**: 이전 대화에서 유사한 질문과 답변을 찾아 재사용
+- **다단계 검색**: DB → 채팅 히스토리 → 최종 답변 순으로 검색
 
 ### 3. 대화 인터페이스
 - **실시간 채팅**: Streamlit 기반의 직관적인 채팅 UI
-- **대화 기록 관리**: 이전 대화 내용 저장 및 조회
+- **세션 관리**: 여러 대화 세션을 독립적으로 관리
+- **채팅 히스토리**: 이전 대화를 벡터화하여 저장하고 검색
+- **유사 질문 검색**: 과거 대화에서 관련 질문과 답변 찾기
 - **상세 정보 표시**: 검색 소스, 관련성 점수, 사용된 문서 수 등
 - **통계 및 분석**: 대화 패턴 및 시스템 성능 분석
 
@@ -65,32 +70,38 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 graph TB
     A[사용자 질문] --> B[Streamlit UI]
     B --> C[LangGraph 워크플로우]
-    C --> D[문서 검색]
-    D --> E[ChromaDB 벡터 스토어]
-    E --> F[관련성 평가]
-    F --> G{관련성 충분?}
-    G -->|Yes| H[답변 생성]
-    G -->|No| I[쿼리 재작성]
-    I --> D
-    G -->|재시도 초과| J[웹 검색]
-    J --> K[Tavily API]
-    K --> H
-    H --> L[최종 답변]
-    L --> B
+    C --> D[채팅 히스토리 검색]
+    D --> E{유사한 질문 발견?}
+    E -->|Yes| F[이전 답변 재사용]
+    E -->|No| G[문서 검색]
+    G --> H[ChromaDB 벡터 스토어]
+    H --> I[관련성 평가]
+    I --> J{관련성 충분?}
+    J -->|Yes| K[답변 생성]
+    J -->|No| L[쿼리 재작성]
+    L --> G
+    J -->|재시도 초과| M[채팅 히스토리 검색]
+    M --> N[최종 답변]
+    K --> O[채팅 히스토리 저장]
+    F --> O
+    N --> O
+    O --> P[최종 답변]
+    P --> B
     
-    M[GitHub 저장소] --> N[문서 추출]
-    N --> O[문서 청킹]
-    O --> P[벡터 임베딩]
-    P --> E
+    Q[GitHub 저장소] --> R[문서 추출]
+    R --> S[문서 청킹]
+    S --> T[벡터 임베딩]
+    T --> H
 ```
 
 ### 컴포넌트 설명
 
 1. **GitHub Document Extractor**: GitHub 저장소에서 문서 추출 및 전처리
 2. **Document Vector Store**: ChromaDB를 사용한 벡터 데이터베이스
-3. **Corrective RAG Agent**: 문서 검색, 관련성 평가, 답변 생성
-4. **LangGraph Workflow**: 상태 기반 워크플로우 관리
-5. **Streamlit UI**: 웹 기반 사용자 인터페이스
+3. **Chat History Manager**: 채팅 히스토리 벡터화 및 검색 관리
+4. **Corrective RAG Agent**: 문서 검색, 관련성 평가, 답변 생성
+5. **LangGraph Workflow**: 상태 기반 워크플로우 관리
+6. **Streamlit UI**: 웹 기반 사용자 인터페이스
 
 ## 🚀 설치 및 설정
 
@@ -130,8 +141,8 @@ cp .env_example .env
 # OpenAI API 설정
 OPENAI_API_KEY=your_openai_api_key_here
 
-# Tavily API 설정 (웹 검색용)
-TAVILY_API_KEY=your_tavily_api_key_here
+# Tavily API 설정 (제거됨 - 채팅 히스토리로 대체)
+# TAVILY_API_KEY=your_tavily_api_key_here
 
 # GitHub 설정
 GITHUB_TOKEN=your_github_token_here
@@ -160,10 +171,8 @@ MAX_SEARCH_RESULTS=5
 3. 필요한 권한 선택 (repo, read:org 등)
 4. 생성된 토큰을 `GITHUB_TOKEN`에 설정
 
-#### Tavily API 키 (선택사항)
-1. [Tavily](https://tavily.com)에 가입
-2. API 키 생성
-3. 생성된 키를 `TAVILY_API_KEY`에 설정
+#### Tavily API 키 (제거됨)
+- **참고**: Tavily API는 제거되었습니다. 대신 채팅 히스토리 시스템을 사용합니다.
 
 ## 📖 사용 방법
 
@@ -183,25 +192,28 @@ python run_streamlit.py
 
 1. **💬 채팅 페이지**
    - 실시간 대화 인터페이스
-   - 대화 기록 관리
+   - 세션 관리 (새 세션 생성, 세션 전환)
+   - 채팅 히스토리 자동 저장
    - 상세 정보 표시 (검색 소스, 관련성 점수 등)
    - 대화 통계 및 내보내기
 
-2. **📁 Repository 관리**
+2. **📚 채팅 히스토리**
+   - 세션별 대화 기록 조회
+   - 유사한 질문 검색
+   - 채팅 히스토리 통계
+   - 세션 관리 (삭제, 새로고침)
+
+3. **📁 Repository 관리**
    - GitHub Repository 추가/삭제
    - Repository 정보 조회
    - 문서 통계 및 관리
    - 대량 작업 지원
 
-3. **⚙️ 설정 페이지**
-   - 시스템 설정 확인
-   - API 키 상태 확인
-   - 도움말 및 문제 해결
-
 4. **📊 시스템 정보**
    - 벡터 스토어 상태
    - 워크플로우 정보
-   - 대화 기록 조회
+   - 채팅 히스토리 통계
+   - 시스템 성능 지표
 
 ### 명령행 인터페이스
 
@@ -307,6 +319,7 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 │   ├── __init__.py
 │   ├── github_extractor.py    # GitHub 문서 추출 클래스
 │   ├── vector_store.py        # 벡터 스토어 (ChromaDB)
+│   ├── chat_history.py        # 채팅 히스토리 관리 클래스
 │   ├── rag_agent.py          # Corrective RAG Agent
 │   ├── langgraph_workflow.py # LangGraph 워크플로우
 │   └── chatbot.py            # 메인 챗봇 클래스
@@ -342,9 +355,66 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 - **python-docx**: Word 문서 처리
 
 ### 기타 도구
-- **Tavily**: 웹 검색 API
+- **ChromaDB**: 벡터 데이터베이스 (문서 및 채팅 히스토리)
 - **SQLite**: 로컬 데이터베이스
 - **Logging**: 시스템 로깅
+
+## 🆕 최신 업데이트 (v2.0)
+
+### 주요 변경사항
+
+#### 1. Tavily API 제거 및 채팅 히스토리 시스템 도입
+- **Tavily API 완전 제거**: 웹 검색 의존성 제거
+- **채팅 히스토리 벡터화**: 모든 질문-답변을 ChromaDB에 저장
+- **지능형 답변 재사용**: 유사한 질문에 대해 이전 답변 우선 제공
+- **다단계 검색 시스템**: DB → 채팅 히스토리 → 최종 답변 순으로 검색
+
+#### 2. 세션 관리 시스템
+- **다중 세션 지원**: 여러 대화 세션을 독립적으로 관리
+- **세션별 히스토리**: 각 세션의 대화 기록을 별도로 저장
+- **세션 전환**: 웹 UI에서 세션 간 자유로운 전환
+- **세션 삭제**: 불필요한 세션 삭제 기능
+
+#### 3. 향상된 웹 인터페이스
+- **채팅 히스토리 페이지**: 전용 히스토리 관리 페이지 추가
+- **유사 질문 검색**: 과거 대화에서 관련 질문 찾기
+- **실시간 통계**: 채팅 히스토리 통계 및 분석
+- **개선된 UI/UX**: 더 직관적이고 사용하기 쉬운 인터페이스
+
+#### 4. 성능 최적화
+- **관련성 임계값 조정**: 0.5 → 0.3으로 조정하여 더 관대한 검색
+- **캐시 시스템**: 이전 답변 재사용으로 응답 속도 향상
+- **메모리 효율성**: 불필요한 웹 검색 제거로 리소스 절약
+
+### 기술적 개선사항
+
+```python
+# 새로운 채팅 히스토리 관리
+from model.chat_history import ChatHistoryManager
+
+# 채팅 히스토리 매니저 초기화
+history_manager = ChatHistoryManager()
+
+# 질문-답변 저장
+history_manager.add_chat_message(
+    question="질문",
+    answer="답변",
+    session_id="session_001"
+)
+
+# 유사한 질문 검색
+similar_questions = history_manager.search_similar_questions(
+    "검색할 질문", k=3
+)
+```
+
+### 마이그레이션 가이드
+
+기존 사용자는 다음 사항을 확인하세요:
+
+1. **환경 변수 업데이트**: `TAVILY_API_KEY` 제거
+2. **의존성 업데이트**: `pip install -r requirements.txt`
+3. **데이터 마이그레이션**: 기존 채팅 데이터는 자동으로 새 시스템으로 이전
 
 ## 🔧 문제 해결
 

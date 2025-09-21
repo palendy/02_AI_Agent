@@ -11,6 +11,7 @@ from config import get_config
 from model.vector_store import DocumentVectorStore
 from model.github_extractor import GitHubDocumentExtractor
 from model.langgraph_workflow import CorrectiveRAGWorkflow
+from model.chat_history import ChatHistoryManager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +39,7 @@ class AIChatbot:
         self.vector_store = None
         self.github_extractor = None
         self.workflow = None
+        self.chat_history_manager = None
         
         # 대화 기록
         self.conversation_history = []
@@ -62,8 +64,15 @@ class AIChatbot:
             self.github_extractor = GitHubDocumentExtractor(**extractor_config)
             logger.info("GitHub Extractor 초기화 완료")
             
+            # 채팅 히스토리 매니저 초기화
+            self.chat_history_manager = ChatHistoryManager()
+            logger.info("채팅 히스토리 매니저 초기화 완료")
+            
             # LangGraph 워크플로우 초기화
-            self.workflow = CorrectiveRAGWorkflow(self.vector_store)
+            self.workflow = CorrectiveRAGWorkflow(
+                self.vector_store, 
+                self.chat_history_manager
+            )
             logger.info("LangGraph 워크플로우 초기화 완료")
             
             logger.info("AI Chatbot 초기화 완료")
@@ -202,12 +211,13 @@ class AIChatbot:
                 "repositories": []
             }
     
-    def chat(self, question: str) -> Dict[str, Any]:
+    def chat(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
         챗봇과 대화
         
         Args:
             question: 사용자 질문
+            session_id: 세션 ID
             
         Returns:
             Dict[str, Any]: 답변 결과
@@ -216,7 +226,7 @@ class AIChatbot:
             logger.info(f"질문 처리 중: {question}")
             
             # 질문 처리
-            result = self.workflow.process_question(question)
+            result = self.workflow.process_question(question, session_id)
             
             # 대화 기록에 추가
             conversation_entry = {
@@ -226,7 +236,8 @@ class AIChatbot:
                 "search_source": result["search_source"],
                 "relevance_score": result["relevance_score"],
                 "retry_count": result["retry_count"],
-                "documents_used": result["documents_used"]
+                "documents_used": result["documents_used"],
+                "session_id": session_id
             }
             
             self.conversation_history.append(conversation_entry)
@@ -246,7 +257,8 @@ class AIChatbot:
                 "retry_count": result["retry_count"],
                 "documents_used": result["documents_used"],
                 "timestamp": conversation_entry["timestamp"],
-                "error_message": result.get("error_message", "")
+                "error_message": result.get("error_message", ""),
+                "similar_questions": result.get("similar_questions", [])
             }
             
         except Exception as e:
@@ -260,7 +272,8 @@ class AIChatbot:
                 "retry_count": 0,
                 "documents_used": 0,
                 "timestamp": datetime.now().isoformat(),
-                "error_message": str(e)
+                "error_message": str(e),
+                "similar_questions": []
             }
     
     def get_conversation_history(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -279,6 +292,78 @@ class AIChatbot:
         """대화 기록 초기화"""
         self.conversation_history = []
         logger.info("대화 기록 초기화 완료")
+    
+    def get_chat_history(self, session_id: str = "default", limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        채팅 히스토리 조회
+        
+        Args:
+            session_id: 세션 ID
+            limit: 최대 조회 수
+            
+        Returns:
+            List[Dict[str, Any]]: 채팅 히스토리
+        """
+        if not self.chat_history_manager:
+            return []
+        
+        return self.chat_history_manager.get_chat_history(session_id, limit)
+    
+    def get_similar_questions(self, question: str, session_id: str = "default", k: int = 3) -> List[Dict[str, Any]]:
+        """
+        유사한 질문 검색
+        
+        Args:
+            question: 검색할 질문
+            session_id: 세션 ID
+            k: 반환할 결과 수
+            
+        Returns:
+            List[Dict[str, Any]]: 유사한 질문 목록
+        """
+        if not self.chat_history_manager:
+            return []
+        
+        return self.chat_history_manager.search_similar_questions(question, k, session_id)
+    
+    def get_all_sessions(self) -> List[str]:
+        """
+        모든 세션 ID 목록 조회
+        
+        Returns:
+            List[str]: 세션 ID 목록
+        """
+        if not self.chat_history_manager:
+            return []
+        
+        return self.chat_history_manager.get_all_sessions()
+    
+    def delete_session(self, session_id: str) -> bool:
+        """
+        특정 세션의 모든 메시지 삭제
+        
+        Args:
+            session_id: 삭제할 세션 ID
+            
+        Returns:
+            bool: 삭제 성공 여부
+        """
+        if not self.chat_history_manager:
+            return False
+        
+        return self.chat_history_manager.delete_session(session_id)
+    
+    def get_chat_history_stats(self) -> Dict[str, Any]:
+        """
+        채팅 히스토리 통계 정보 조회
+        
+        Returns:
+            Dict[str, Any]: 통계 정보
+        """
+        if not self.chat_history_manager:
+            return {"error": "채팅 히스토리 매니저가 없습니다."}
+        
+        return self.chat_history_manager.get_collection_stats()
     
     def get_system_info(self) -> Dict[str, Any]:
         """
@@ -305,15 +390,20 @@ class AIChatbot:
                 "chunk_overlap": self.config.chunk_overlap
             }
             
+            # 채팅 히스토리 정보
+            chat_history_info = self.get_chat_history_stats()
+            
             return {
                 "vector_store": vector_store_info,
                 "workflow": workflow_info,
                 "config": config_info,
+                "chat_history": chat_history_info,
                 "conversation_count": len(self.conversation_history),
                 "initialized": all([
                     self.vector_store is not None,
                     self.github_extractor is not None,
-                    self.workflow is not None
+                    self.workflow is not None,
+                    self.chat_history_manager is not None
                 ])
             }
             

@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
-from langchain.tools import TavilySearchResults
 
 from config import get_config
 from model.vector_store import DocumentVectorStore
+from model.chat_history import ChatHistoryManager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -29,9 +29,10 @@ class CorrectiveAgentState:
     relevance_score: float = 0.0
     retry_count: int = 0
     max_retries: int = 3
-    search_source: str = "db"  # "db" or "web"
+    search_source: str = "db"  # "db", "history", or "final"
     final_answer: str = ""
     current_query: str = ""
+    similar_questions: List[Dict[str, Any]] = None
 
 
 class CorrectiveRAGAgent:
@@ -39,16 +40,19 @@ class CorrectiveRAGAgent:
     
     def __init__(self, 
                  vector_store: DocumentVectorStore,
+                 chat_history_manager: Optional[ChatHistoryManager] = None,
                  model_name: Optional[str] = None):
         """
         CorrectiveRAGAgent 초기화
         
         Args:
             vector_store: 문서 벡터 스토어
+            chat_history_manager: 채팅 히스토리 매니저
             model_name: 사용할 LLM 모델명
         """
         self.config = get_config()
         self.vector_store = vector_store
+        self.chat_history_manager = chat_history_manager
         self.model_name = model_name or self.config.default_model_name
         
         # LLM 초기화
@@ -56,11 +60,6 @@ class CorrectiveRAGAgent:
             model=self.model_name,
             temperature=0,
             openai_api_key=self.config.openai_api_key
-        )
-        
-        # 웹 검색 도구 초기화
-        self.web_search = TavilySearchResults(
-            tavily_api_key=self.config.tavily_api_key
         )
         
         # 프롬프트 템플릿 초기화
@@ -269,49 +268,63 @@ class CorrectiveRAGAgent:
             logger.error(f"쿼리 재작성 실패: {e}")
             return current_query
     
-    def web_search_documents(self, query: str, max_results: int = 3) -> List[Document]:
+    def search_chat_history(self, query: str, k: int = 3) -> List[Document]:
         """
-        웹 검색을 통한 문서 수집
+        채팅 히스토리에서 유사한 질문 검색
         
         Args:
             query: 검색 쿼리
-            max_results: 최대 결과 수
+            k: 반환할 결과 수
             
         Returns:
             List[Document]: 검색된 문서 목록
         """
         try:
-            logger.info(f"웹 검색 중: {query}")
+            if not self.chat_history_manager:
+                logger.warning("채팅 히스토리 매니저가 없습니다.")
+                return []
             
-            # Tavily 검색 실행
-            search_results = self.web_search.run(query)
+            logger.info(f"채팅 히스토리 검색 중: {query}")
+            
+            # 유사한 질문 검색
+            similar_questions = self.chat_history_manager.search_similar_questions(
+                query, k=k
+            )
             
             # Document 객체로 변환
             documents = []
-            for result in search_results[:max_results]:
+            for item in similar_questions:
+                # 질문과 답변을 결합하여 문서 생성
+                content = f"질문: {item['question']}\n답변: {item['answer']}"
+                
                 doc = Document(
-                    page_content=result.get('content', ''),
+                    page_content=content,
                     metadata={
-                        'source': result.get('url', ''),
-                        'title': result.get('title', ''),
-                        'source_type': 'web'
+                        'source': 'chat_history',
+                        'question': item['question'],
+                        'answer': item['answer'],
+                        'timestamp': item['timestamp'],
+                        'session_id': item['session_id'],
+                        'similarity_score': item['similarity_score'],
+                        'source_type': 'chat_history'
                     }
                 )
                 documents.append(doc)
             
-            logger.info(f"웹 검색 완료: {len(documents)}개 문서")
+            logger.info(f"채팅 히스토리 검색 완료: {len(documents)}개")
             return documents
             
         except Exception as e:
-            logger.error(f"웹 검색 실패: {e}")
+            logger.error(f"채팅 히스토리 검색 실패: {e}")
             return []
     
-    def process_question(self, question: str) -> Dict[str, Any]:
+    def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
         질문 처리 (Corrective RAG 워크플로우)
         
         Args:
             question: 사용자 질문
+            session_id: 세션 ID
             
         Returns:
             Dict[str, Any]: 처리 결과
@@ -326,23 +339,58 @@ class CorrectiveRAGAgent:
                 max_retries=self.config.max_retries
             )
             
-            # Corrective RAG 워크플로우 실행
+            # 1. 먼저 채팅 히스토리에서 유사한 질문 검색
+            if self.chat_history_manager:
+                logger.info("채팅 히스토리에서 유사한 질문 검색 중")
+                state.similar_questions = self.chat_history_manager.search_similar_questions(
+                    question, k=3, session_id=session_id
+                )
+                
+                if state.similar_questions:
+                    # 유사한 질문이 있으면 해당 답변을 우선 고려
+                    best_match = state.similar_questions[0]
+                    if best_match['similarity_score'] > 0.8:  # 높은 유사도
+                        logger.info(f"유사한 질문 발견 (유사도: {best_match['similarity_score']:.3f})")
+                        state.final_answer = f"이전에 비슷한 질문을 받았습니다:\n\n질문: {best_match['question']}\n답변: {best_match['answer']}"
+                        state.search_source = "history"
+                        
+                        # 채팅 히스토리에 현재 질문-답변 저장
+                        self.chat_history_manager.add_chat_message(
+                            question=question,
+                            answer=state.final_answer,
+                            session_id=session_id,
+                            relevance_score=best_match['similarity_score'],
+                            search_source="history",
+                            documents_used=0
+                        )
+                        
+                        return {
+                            "question": question,
+                            "answer": state.final_answer,
+                            "search_source": state.search_source,
+                            "relevance_score": best_match['similarity_score'],
+                            "retry_count": 0,
+                            "documents_used": 0,
+                            "similar_questions": state.similar_questions
+                        }
+            
+            # 2. 채팅 히스토리에 유사한 질문이 없으면 일반 RAG 워크플로우 실행
             while state.retry_count < state.max_retries:
                 logger.info(f"시도 {state.retry_count + 1}/{state.max_retries}")
                 
-                # 1. 문서 검색
+                # 문서 검색
                 if state.search_source == "db":
                     state.search_results = self.retrieve_documents(
                         state.current_query, 
                         k=self.config.max_search_results
                     )
-                else:
-                    state.search_results = self.web_search_documents(
+                elif state.search_source == "history":
+                    state.search_results = self.search_chat_history(
                         state.current_query,
-                        max_results=self.config.max_search_results
+                        k=self.config.max_search_results
                     )
                 
-                # 2. 관련성 평가
+                # 관련성 평가
                 if state.search_results:
                     grade_result = self.grade_relevance(question, state.search_results)
                     state.docs_are_relevant = grade_result["docs_are_relevant"]
@@ -363,13 +411,20 @@ class CorrectiveRAGAgent:
                         )
                         state.retry_count += 1
                         
-                        # DB 검색으로 전환
-                        if state.search_source == "web":
-                            state.search_source = "db"
+                        # 검색 소스 전환: db -> history -> final
+                        if state.search_source == "db":
+                            state.search_source = "history"
+                        elif state.search_source == "history":
+                            state.search_source = "final"
                 else:
-                    logger.info("검색 결과 없음 - 웹 검색으로 전환")
-                    state.search_source = "web"
+                    logger.info("검색 결과 없음 - 다음 검색 소스로 전환")
                     state.retry_count += 1
+                    
+                    # 검색 소스 전환
+                    if state.search_source == "db":
+                        state.search_source = "history"
+                    elif state.search_source == "history":
+                        state.search_source = "final"
             
             # 최대 시도 횟수 도달 시 최종 답변
             if not state.final_answer:
@@ -377,6 +432,17 @@ class CorrectiveRAGAgent:
                     state.final_answer = self.generate_answer(question, state.search_results)
                 else:
                     state.final_answer = "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
+            
+            # 채팅 히스토리에 질문-답변 저장
+            if self.chat_history_manager:
+                self.chat_history_manager.add_chat_message(
+                    question=question,
+                    answer=state.final_answer,
+                    session_id=session_id,
+                    relevance_score=state.relevance_score,
+                    search_source=state.search_source,
+                    documents_used=len(state.search_results) if state.search_results else 0
+                )
             
             logger.info("질문 처리 완료")
             
@@ -386,7 +452,8 @@ class CorrectiveRAGAgent:
                 "search_source": state.search_source,
                 "relevance_score": state.relevance_score,
                 "retry_count": state.retry_count,
-                "documents_used": len(state.search_results) if state.search_results else 0
+                "documents_used": len(state.search_results) if state.search_results else 0,
+                "similar_questions": state.similar_questions or []
             }
             
         except Exception as e:
@@ -397,7 +464,8 @@ class CorrectiveRAGAgent:
                 "search_source": "error",
                 "relevance_score": 0.0,
                 "retry_count": 0,
-                "documents_used": 0
+                "documents_used": 0,
+                "similar_questions": []
             }
 
 

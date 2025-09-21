@@ -15,6 +15,7 @@ from langchain.schema import Document
 from config import get_config
 from model.vector_store import DocumentVectorStore
 from model.rag_agent import CorrectiveRAGAgent
+from model.chat_history import ChatHistoryManager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,8 @@ class CorrectiveRAGState(TypedDict):
     final_answer: str
     current_query: str
     error_message: str
+    similar_questions: List[Dict[str, Any]]
+    session_id: str
 
 
 class CorrectiveRAGWorkflow:
@@ -40,20 +43,23 @@ class CorrectiveRAGWorkflow:
     
     def __init__(self, 
                  vector_store: DocumentVectorStore,
+                 chat_history_manager: Optional[ChatHistoryManager] = None,
                  model_name: Optional[str] = None):
         """
         CorrectiveRAGWorkflow 초기화
         
         Args:
             vector_store: 문서 벡터 스토어
+            chat_history_manager: 채팅 히스토리 매니저
             model_name: 사용할 LLM 모델명
         """
         self.config = get_config()
         self.vector_store = vector_store
+        self.chat_history_manager = chat_history_manager
         self.model_name = model_name or self.config.default_model_name
         
         # RAG Agent 초기화
-        self.rag_agent = CorrectiveRAGAgent(vector_store, model_name)
+        self.rag_agent = CorrectiveRAGAgent(vector_store, chat_history_manager, model_name)
         
         # 워크플로우 그래프 생성
         self.workflow = self._build_workflow()
@@ -69,7 +75,7 @@ class CorrectiveRAGWorkflow:
         workflow.add_node("grade", self._grade_node)
         workflow.add_node("generate", self._generate_node)
         workflow.add_node("rewrite", self._rewrite_node)
-        workflow.add_node("web_search", self._web_search_node)
+        workflow.add_node("history_search", self._history_search_node)
         workflow.add_node("final_answer", self._final_answer_node)
         workflow.add_node("error", self._error_node)
         
@@ -86,7 +92,7 @@ class CorrectiveRAGWorkflow:
             {
                 "generate": "generate",
                 "rewrite": "rewrite",
-                "web_search": "web_search",
+                "history_search": "history_search",
                 "final_answer": "final_answer",
                 "error": "error"
             }
@@ -95,8 +101,8 @@ class CorrectiveRAGWorkflow:
         # 재작성 후 검색
         workflow.add_edge("rewrite", "retrieve")
         
-        # 웹 검색 후 평가
-        workflow.add_edge("web_search", "grade")
+        # 채팅 히스토리 검색 후 평가
+        workflow.add_edge("history_search", "grade")
         
         # 답변 생성 후 종료
         workflow.add_edge("generate", END)
@@ -213,27 +219,27 @@ class CorrectiveRAGWorkflow:
                 "error_message": f"쿼리 재작성 실패: {str(e)}"
             }
     
-    def _web_search_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
-        """웹 검색 노드"""
+    def _history_search_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
+        """채팅 히스토리 검색 노드"""
         try:
-            logger.info("웹 검색 중")
+            logger.info("채팅 히스토리 검색 중")
             
-            # 웹 검색 실행
-            results = self.rag_agent.web_search_documents(
+            # 채팅 히스토리 검색 실행
+            results = self.rag_agent.search_chat_history(
                 state["current_query"],
-                max_results=self.config.max_search_results
+                k=self.config.max_search_results
             )
             
             return {
                 "search_results": results,
-                "search_source": "web"
+                "search_source": "history"
             }
             
         except Exception as e:
-            logger.error(f"웹 검색 실패: {e}")
+            logger.error(f"채팅 히스토리 검색 실패: {e}")
             return {
                 "search_results": [],
-                "error_message": f"웹 검색 실패: {str(e)}"
+                "error_message": f"채팅 히스토리 검색 실패: {str(e)}"
             }
     
     def _final_answer_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
@@ -285,9 +291,11 @@ class CorrectiveRAGWorkflow:
                 if relevance_score < threshold:
                     logger.info(f"관련성 부족 ({relevance_score:.3f} < {threshold}) - 재시도")
                     
-                    # DB 검색에서 웹 검색으로 전환
+                    # 검색 소스 전환: db -> history -> final
                     if state.get("search_source") == "db" and retry_count >= 1:
-                        return "web_search"
+                        return "history_search"
+                    elif state.get("search_source") == "history" and retry_count >= 2:
+                        return "final_answer"
                     else:
                         return "rewrite"
             
@@ -299,12 +307,13 @@ class CorrectiveRAGWorkflow:
             logger.error(f"재시도 결정 실패: {e}")
             return "error"
     
-    def process_question(self, question: str) -> Dict[str, Any]:
+    def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
         질문 처리
         
         Args:
             question: 사용자 질문
+            session_id: 세션 ID
             
         Returns:
             Dict[str, Any]: 처리 결과
@@ -323,11 +332,24 @@ class CorrectiveRAGWorkflow:
                 "max_retries": self.config.max_retries,
                 "search_source": "db",
                 "final_answer": "",
-                "error_message": ""
+                "error_message": "",
+                "similar_questions": [],
+                "session_id": session_id
             }
             
             # 워크플로우 실행
             result = self.workflow.invoke(initial_state)
+            
+            # 채팅 히스토리에 질문-답변 저장
+            if self.chat_history_manager:
+                self.chat_history_manager.add_chat_message(
+                    question=question,
+                    answer=result.get("final_answer", ""),
+                    session_id=session_id,
+                    relevance_score=result.get("relevance_score", 0.0),
+                    search_source=result.get("search_source", "unknown"),
+                    documents_used=len(result.get("search_results", []))
+                )
             
             logger.info("질문 처리 완료")
             
@@ -338,7 +360,8 @@ class CorrectiveRAGWorkflow:
                 "relevance_score": result.get("relevance_score", 0.0),
                 "retry_count": result.get("retry_count", 0),
                 "documents_used": len(result.get("search_results", [])),
-                "error_message": result.get("error_message", "")
+                "error_message": result.get("error_message", ""),
+                "similar_questions": result.get("similar_questions", [])
             }
             
         except Exception as e:
@@ -350,7 +373,8 @@ class CorrectiveRAGWorkflow:
                 "relevance_score": 0.0,
                 "retry_count": 0,
                 "documents_used": 0,
-                "error_message": str(e)
+                "error_message": str(e),
+                "similar_questions": []
             }
     
     def get_workflow_info(self) -> Dict[str, Any]:

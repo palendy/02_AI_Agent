@@ -13,8 +13,7 @@ langchain-core>=0.1.0
 # Environment and configuration
 python-dotenv>=1.0.0
 
-# Web search and data processing
-tavily-python>=0.3.0
+# Data processing
 requests>=2.31.0
 
 # GitHub integration
@@ -43,7 +42,6 @@ streamlit-option-menu>=0.3.6
 
 # Database
 sqlalchemy>=2.0.0
-sqlite3
 
 # Utilities
 pydantic-settings>=2.1.0

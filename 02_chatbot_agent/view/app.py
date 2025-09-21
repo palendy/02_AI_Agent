@@ -124,6 +124,12 @@ def initialize_session_state():
     
     if 'repository_urls' not in st.session_state:
         st.session_state.repository_urls = []
+    
+    if 'current_session_id' not in st.session_state:
+        st.session_state.current_session_id = "default"
+    
+    if 'available_sessions' not in st.session_state:
+        st.session_state.available_sessions = []
 
 
 def initialize_chatbot():
@@ -189,8 +195,8 @@ def render_navigation():
             st.rerun()
     
     with col3:
-        if st.button("⚙️ 설정", use_container_width=True):
-            st.session_state.current_page = "settings"
+        if st.button("📚 채팅 히스토리", use_container_width=True):
+            st.session_state.current_page = "history"
             st.rerun()
     
     with col4:
@@ -205,8 +211,8 @@ def render_main_content():
         render_chat_interface()
     elif st.session_state.current_page == "repository":
         render_repository_manager()
-    elif st.session_state.current_page == "settings":
-        render_sidebar()
+    elif st.session_state.current_page == "history":
+        render_chat_history()
     elif st.session_state.current_page == "info":
         render_system_info()
 
@@ -276,6 +282,125 @@ def render_system_info():
     
     except Exception as e:
         st.error(f"❌ 시스템 정보 조회 실패: {str(e)}")
+
+
+def render_chat_history():
+    """채팅 히스토리 렌더링"""
+    st.header("📚 채팅 히스토리")
+    
+    if not st.session_state.system_initialized:
+        st.warning("⚠️ 시스템이 초기화되지 않았습니다.")
+        return
+    
+    try:
+        # 세션 관리
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            # 사용 가능한 세션 목록 조회
+            available_sessions = st.session_state.chatbot.get_all_sessions()
+            if not available_sessions:
+                available_sessions = ["default"]
+            
+            selected_session = st.selectbox(
+                "세션 선택",
+                available_sessions,
+                index=available_sessions.index(st.session_state.current_session_id) if st.session_state.current_session_id in available_sessions else 0
+            )
+            
+            if selected_session != st.session_state.current_session_id:
+                st.session_state.current_session_id = selected_session
+                st.rerun()
+        
+        with col2:
+            if st.button("🔄 새로고침"):
+                st.rerun()
+        
+        with col3:
+            if st.button("🗑️ 세션 삭제", type="secondary"):
+                if st.session_state.chatbot.delete_session(st.session_state.current_session_id):
+                    st.success("세션이 삭제되었습니다.")
+                    st.rerun()
+                else:
+                    st.error("세션 삭제에 실패했습니다.")
+        
+        # 채팅 히스토리 조회
+        chat_history = st.session_state.chatbot.get_chat_history(
+            st.session_state.current_session_id, 
+            limit=100
+        )
+        
+        if not chat_history:
+            st.info("📝 선택한 세션에 채팅 기록이 없습니다.")
+            return
+        
+        # 히스토리 통계
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("총 메시지", len(chat_history))
+        
+        with col2:
+            db_messages = len([msg for msg in chat_history if msg.get('search_source') == 'db'])
+            st.metric("DB 검색", db_messages)
+        
+        with col3:
+            history_messages = len([msg for msg in chat_history if msg.get('search_source') == 'history'])
+            st.metric("히스토리 검색", history_messages)
+        
+        with col4:
+            avg_relevance = sum([msg.get('relevance_score', 0) for msg in chat_history]) / len(chat_history)
+            st.metric("평균 관련성", f"{avg_relevance:.3f}")
+        
+        st.markdown("---")
+        
+        # 채팅 히스토리 표시
+        st.subheader(f"💬 세션: {st.session_state.current_session_id}")
+        
+        for i, entry in enumerate(reversed(chat_history), 1):
+            with st.expander(f"메시지 {len(chat_history) - i + 1}: {entry['question'][:50]}...", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.write(f"**질문**: {entry['question']}")
+                    st.write(f"**답변**: {entry['answer']}")
+                
+                with col2:
+                    st.write(f"**검색 소스**: {entry.get('search_source', 'unknown')}")
+                    st.write(f"**관련성 점수**: {entry.get('relevance_score', 0):.3f}")
+                    st.write(f"**문서 수**: {entry.get('documents_used', 0)}")
+                    st.write(f"**시간**: {entry.get('timestamp', 'Unknown')}")
+                
+                # 유사한 질문이 있는 경우 표시
+                if 'similar_questions' in entry and entry['similar_questions']:
+                    st.write("**유사한 질문들**:")
+                    for similar in entry['similar_questions'][:3]:
+                        st.write(f"- {similar['question']} (유사도: {similar['similarity_score']:.3f})")
+        
+        # 유사한 질문 검색 기능
+        st.markdown("---")
+        st.subheader("🔍 유사한 질문 검색")
+        
+        search_query = st.text_input("검색할 질문을 입력하세요:")
+        if search_query:
+            similar_questions = st.session_state.chatbot.get_similar_questions(
+                search_query, 
+                st.session_state.current_session_id, 
+                k=5
+            )
+            
+            if similar_questions:
+                st.write(f"**'{search_query}'와 유사한 질문들:**")
+                for similar in similar_questions:
+                    with st.expander(f"유사도: {similar['similarity_score']:.3f} - {similar['question'][:50]}..."):
+                        st.write(f"**질문**: {similar['question']}")
+                        st.write(f"**답변**: {similar['answer']}")
+                        st.write(f"**시간**: {similar['timestamp']}")
+            else:
+                st.info("유사한 질문을 찾을 수 없습니다.")
+    
+    except Exception as e:
+        st.error(f"❌ 채팅 히스토리 조회 실패: {str(e)}")
 
 
 def main():
