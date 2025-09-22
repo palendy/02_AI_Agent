@@ -177,30 +177,38 @@ graph TD
 
 ```mermaid
 graph TD
-    START([START]) --> A[rewrite]
-    A --> B[search]
-    B --> C[grade]
-    C -->|관련성 통과| D[generate]
-    C -->|관련성 부족| E[retry]
-    E -->|retry_count < 3| A
-    E -->|retry_count >= 3| F[history_search]
-    F -->|유사한 질문 발견| G[final_answer]
-    F -->|유사한 질문 없음| H[issue_search]
-    H --> G
-    D --> G
-    G --> END([END])
+    START([START]) --> rewrite[rewrite]
+    rewrite --> search[search]
+    search --> grade[grade]
+    grade -->|관련성 통과| generate[generate]
+    grade -->|관련성 부족| retry[retry]
+    retry -->|retry_count < 3| rewrite
+    retry -->|retry_count >= 3| history_search[history_search]
+    history_search -->|유사한 질문 발견| final_answer[final_answer]
+    history_search -->|유사한 질문 없음| issue_search[issue_search]
+    issue_search --> final_answer
+    generate --> final_answer
+    final_answer --> END([END])
     
-    style START fill:#4caf50,color:#fff
-    style END fill:#f44336,color:#fff
-    style A fill:#e3f2fd
-    style B fill:#e8f5e8
-    style C fill:#fff3e0
-    style D fill:#e8f5e8
-    style E fill:#fce4ec
-    style F fill:#f3e5f5
-    style G fill:#c8e6c9
-    style H fill:#e0f2f1
+    style START fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style END fill:#f44336,color:#fff,stroke:#c62828,stroke-width:3px
+    style rewrite fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style search fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    style grade fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style generate fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    style retry fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style history_search fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style issue_search fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    style final_answer fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
 ```
+
+### LangGraph 핵심 개념
+
+- **GraphState(상태 저장 그래프)**: LangGraph는 그래프의 각 노드가 계산의 단계를 나타내며, 그래프는 계산이 진행됨에 따라 전달되고 업데이트되는 상태를 유지하는 상태 저장 그래프 개념을 중심으로 작동합니다.
+
+- **Node(노드)**: 노드는 LangGraph의 구성 요소입니다. 각 노드는 함수 또는 계산 단계를 나타냅니다. 입력 처리, 의사 결정, 외부 API와의 상호 작용 등 특정 작업을 수행하도록 노드를 정의할 수 있습니다.
+
+- **Edge(엣지)**: 에지는 그래프에서 노드를 연결하여 계산의 흐름을 정의합니다. LangGraph는 조건부 에지를 지원하므로 그래프의 현재 상태에 따라 실행할 다음 노드를 동적으로 결정할 수 있습니다.
 
 ## 🔧 주요 설정
 
