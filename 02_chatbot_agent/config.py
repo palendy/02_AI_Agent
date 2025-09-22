@@ -56,7 +56,7 @@ class Config:
     @property
     def embedding_model(self) -> str:
         """임베딩 모델명"""
-        return os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        return os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
     
     # 검색 설정
     @property
@@ -72,7 +72,7 @@ class Config:
     @property
     def max_search_results(self) -> int:
         """최대 검색 결과 수"""
-        return int(os.getenv("MAX_SEARCH_RESULTS", "5"))
+        return int(os.getenv("MAX_SEARCH_RESULTS", "8"))
     
     # GitHub 설정
     @property
@@ -98,12 +98,12 @@ class Config:
     @property
     def chunk_size(self) -> int:
         """문서 청크 크기"""
-        return int(os.getenv("CHUNK_SIZE", "1000"))
+        return int(os.getenv("CHUNK_SIZE", "1500"))
     
     @property
     def chunk_overlap(self) -> int:
         """문서 청크 오버랩"""
-        return int(os.getenv("CHUNK_OVERLAP", "200"))
+        return int(os.getenv("CHUNK_OVERLAP", "300"))
     
     # 데이터베이스 설정
     @property

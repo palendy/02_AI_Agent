@@ -75,11 +75,50 @@ class AIChatbot:
             )
             logger.info("LangGraph 워크플로우 초기화 완료")
             
+            # 설정된 repository들 자동 로드
+            self._load_configured_repositories()
+            
             logger.info("AI Chatbot 초기화 완료")
             
         except Exception as e:
             logger.error(f"컴포넌트 초기화 실패: {e}")
             raise
+    
+    def _load_configured_repositories(self):
+        """설정된 repository들을 자동으로 로드"""
+        try:
+            repositories = self.config.github_repositories
+            
+            if not repositories:
+                logger.info("설정된 repository가 없습니다.")
+                return
+            
+            logger.info(f"설정된 Repository 로드 중: {len(repositories)}개")
+            
+            # 벡터 스토어에 문서가 이미 있는지 확인
+            collection_info = self.vector_store.get_collection_info()
+            if collection_info.get('document_count', 0) > 0:
+                logger.info("벡터 스토어에 이미 문서가 있습니다. 추가 로딩을 건너뜁니다.")
+                return
+            
+            # Repository들 로드
+            for url in repositories:
+                try:
+                    logger.info(f"Repository 처리 중: {url}")
+                    result = self.add_github_repository(url)
+                    if result["success"]:
+                        logger.info(f"✅ Repository 로드 성공: {url} ({result['documents_count']}개 문서)")
+                    else:
+                        logger.warning(f"⚠️ Repository 로드 실패: {url} - {result['message']}")
+                except Exception as e:
+                    logger.error(f"❌ Repository 로드 중 오류: {url} - {e}")
+                    continue
+            
+            logger.info("설정된 Repository 로드 완료")
+            
+        except Exception as e:
+            logger.error(f"설정된 Repository 로드 실패: {e}")
+            # 초기화 실패를 방지하기 위해 예외를 다시 발생시키지 않음
     
     def add_github_repository(self, repository_url: str) -> Dict[str, Any]:
         """
