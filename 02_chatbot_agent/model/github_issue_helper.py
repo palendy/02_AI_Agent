@@ -474,11 +474,16 @@ class GitHubIssueHelper:
                 issue['hybrid_score'] = hybrid_score
                 issue['similarity_score'] = hybrid_score  # 기존 호환성을 위해 유지
                 
-                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: BM25={bm25_score:.3f}, Dense={dense_score:.3f}, Hybrid={hybrid_score:.3f}")
+                logger.info(f"📊 [GITHUB] 이슈 #{issue.get('number')}: BM25={bm25_score:.3f}, Dense={dense_score:.3f}, Hybrid={hybrid_score:.3f}")
             
             # Hybrid 스코어 순으로 정렬
             logger.info(f"🔄 [GITHUB] Hybrid 스코어 순으로 정렬 중")
             candidate_issues.sort(key=lambda x: x['hybrid_score'], reverse=True)
+            
+            # 상위 결과 요약 출력
+            logger.info(f"🏆 [GITHUB] Hybrid Search 결과 요약:")
+            for i, issue in enumerate(candidate_issues[:5]):  # 상위 5개만 출력
+                logger.info(f"  #{i+1}. 이슈 #{issue.get('number')}: {issue.get('title', '')[:50]}... (점수: {issue.get('hybrid_score', 0):.3f})")
             
             logger.info(f"✅ [GITHUB] Hybrid Search 완료: {len(candidate_issues)}개 이슈")
             return candidate_issues
@@ -639,7 +644,7 @@ class GitHubIssueHelper:
                 issue['final_score'] = final_score
                 issue['similarity_score'] = final_score  # 기존 호환성을 위해 유지
                 
-                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: Cross={cross_score_value:.3f}, Final={final_score:.3f}")
+                logger.info(f"📊 [GITHUB] 이슈 #{issue.get('number')}: Cross={cross_score_value:.3f}, Final={final_score:.3f}")
                 reranked_issues.append(issue)
             
             # 최종 점수 순으로 정렬
@@ -648,6 +653,11 @@ class GitHubIssueHelper:
             
             # 상위 결과만 반환
             result = reranked_issues[:max_results]
+            
+            # 최종 결과 요약 출력
+            logger.info(f"🎯 [GITHUB] Cross-Encoder Re-ranking 결과 요약:")
+            for i, issue in enumerate(result[:3]):  # 상위 3개만 출력
+                logger.info(f"  #{i+1}. 이슈 #{issue.get('number')}: {issue.get('title', '')[:50]}... (최종점수: {issue.get('final_score', 0):.3f})")
             
             logger.info(f"✅ [GITHUB] Cross-Encoder Re-ranking 완료: {len(result)}개 이슈")
             return result
