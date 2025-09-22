@@ -279,11 +279,6 @@ def initialize_session_state():
     if 'repository_urls' not in st.session_state:
         st.session_state.repository_urls = []
     
-    if 'current_session_id' not in st.session_state:
-        st.session_state.current_session_id = "default"
-    
-    if 'available_sessions' not in st.session_state:
-        st.session_state.available_sessions = []
     
     if 'selected_repository' not in st.session_state:
         st.session_state.selected_repository = None
@@ -304,61 +299,25 @@ def initialize_chatbot():
 
 def render_compact_header():
     """간소화된 헤더 렌더링 (채팅 페이지용)"""
-    # 메인 헤더 카드
+    # 간소화된 헤더 카드 (제목만)
     st.markdown("""
     <div class="compact-header fade-in-up">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
             <div>
-                <h1 style="margin: 0; color: white; font-size: 2rem; font-weight: 700;">🤖 AI Agent Chatbot</h1>
-                <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 1rem;">GitHub 문서 기반 지능형 챗봇</p>
+                <h1 style="margin: 0; color: white; font-size: 1.8rem; font-weight: 700;">🤖 AI Agent Chatbot</h1>
+                <p style="margin: 0.3rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.9rem;">GitHub 문서 기반 지능형 챗봇</p>
             </div>
-            <div style="display: flex; gap: 1rem; align-items: center;">
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <div style="text-align: center;">
-                    <div style="font-size: 0.9rem; color: rgba(255,255,255,0.8); margin-bottom: 0.25rem;">시스템 상태</div>
-                    <div style="font-weight: 600; color: white;">
+                    <div style="font-size: 0.8rem; color: rgba(255,255,255,0.8); margin-bottom: 0.2rem;">시스템 상태</div>
+                    <div style="font-weight: 600; color: white; font-size: 0.9rem;">
                         """ + ("✅ 준비됨" if st.session_state.system_initialized else "⚠️ 초기화 중") + """
                     </div>
-                </div>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button onclick="window.parent.postMessage({type: 'streamlit:setComponentValue', key: 'nav_history'}, '*')" 
-                            style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); 
-                                   color: white; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; 
-                                   font-weight: 600; transition: all 0.3s ease;">
-                        📚 히스토리
-                    </button>
-                    <button onclick="window.parent.postMessage({type: 'streamlit:setComponentValue', key: 'nav_info'}, '*')" 
-                            style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); 
-                                   color: white; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; 
-                                   font-weight: 600; transition: all 0.3s ease;">
-                        📊 정보
-                    </button>
                 </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
-    # 네비게이션 버튼들 (Streamlit 버튼으로 대체)
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-    
-    with col1:
-        if st.button("📚 히스토리", use_container_width=True, key="nav_history_btn"):
-            st.session_state.current_page = "history"
-            st.rerun()
-    
-    with col2:
-        if st.button("📊 시스템 정보", use_container_width=True, key="nav_info_btn"):
-            st.session_state.current_page = "info"
-            st.rerun()
-    
-    with col3:
-        if st.button("🔄 새로고침", use_container_width=True, key="refresh_btn"):
-            st.rerun()
-    
-    with col4:
-        if st.button("⚙️ 설정", use_container_width=True, key="settings_btn"):
-            st.session_state.current_page = "settings"
-            st.rerun()
 
 
 def render_header():
@@ -405,10 +364,10 @@ def render_repository_selector():
         
         if not repositories:
             st.markdown("""
-            <div style="text-align: center; padding: 0.5rem; background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
-                        border: 1px solid #ffc107; border-radius: 8px; margin: 0.5rem 0;">
-                <div style="font-size: 1.2rem; margin-bottom: 0.25rem;">⚠️</div>
-                <h4 style="color: #856404; margin: 0; font-size: 0.9rem;">사용 가능한 서비스가 없습니다</h4>
+            <div style="text-align: center; padding: 0.3rem; background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
+                        border: 1px solid #ffc107; border-radius: 6px; margin: 0.3rem 0;">
+                <div style="font-size: 1rem; margin-bottom: 0.2rem;">⚠️</div>
+                <h4 style="color: #856404; margin: 0; font-size: 0.8rem;">사용 가능한 서비스가 없습니다</h4>
             </div>
             """, unsafe_allow_html=True)
             return
@@ -416,11 +375,46 @@ def render_repository_selector():
         # 현재 선택된 repository 찾기
         current_repo = st.session_state.chatbot.get_current_repository()
         
-        # 서비스 선택 버튼들을 한 줄로 표시
+        # 서비스 선택 버튼들을 한 줄로 표시 (더 간단하게)
         st.markdown("""
-        <div style="text-align: center; margin: 0.5rem 0;">
-            <h4 style="color: #667eea; margin-bottom: 0.5rem; font-size: 1rem;">🎯 서비스 선택</h4>
+        <div style="text-align: center; margin: 0.3rem 0;">
+            <h4 style="color: #667eea; margin-bottom: 0.3rem; font-size: 0.9rem;">🎯 서비스 선택</h4>
         </div>
+        """, unsafe_allow_html=True)
+        
+        # 선택된 서비스 버튼 스타일을 위한 CSS 추가
+        st.markdown("""
+        <style>
+        div[data-testid="column"] .stButton > button[kind="secondary"] {
+            background: white !important;
+            color: #333 !important;
+            border: 1px solid #e0e0e0 !important;
+            transition: all 0.3s ease !important;
+            padding: 0.3rem 0.5rem !important;
+            font-size: 0.75rem !important;
+            min-height: 2rem !important;
+        }
+        div[data-testid="column"] .stButton > button[kind="secondary"]:hover {
+            background: #f8f9fa !important;
+            border-color: #2196F3 !important;
+            transform: translateY(-1px) !important;
+        }
+        div[data-testid="column"] .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%) !important;
+            color: white !important;
+            border: 2px solid #2196F3 !important;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3) !important;
+            font-weight: 600 !important;
+            padding: 0.3rem 0.5rem !important;
+            font-size: 0.75rem !important;
+            min-height: 2rem !important;
+        }
+        div[data-testid="column"] .stButton > button[kind="primary"]:hover {
+            background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 25px rgba(33, 150, 243, 0.4) !important;
+        }
+        </style>
         """, unsafe_allow_html=True)
         
         # 서비스 버튼들을 한 줄로 표시
@@ -434,32 +428,17 @@ def render_repository_selector():
                 button_text = f"{'🎯' if is_selected else '📚'} {repo['name']}"
                 button_help = f"{repo['name']} 서비스를 선택합니다. ({repo['document_count']}개 문서)"
                 
+                # 선택된 서비스는 primary 버튼으로, 그 외는 secondary로
+                button_type = "primary" if is_selected else "secondary"
+                
                 if st.button(button_text, key=f"service_btn_{i}", use_container_width=True, 
-                           help=button_help):
+                           help=button_help, type=button_type):
                     if st.session_state.chatbot.set_current_repository(repo['url']):
                         st.session_state.selected_repository = repo['url']
                         st.success(f"✅ 서비스 변경됨: {repo['name']}")
                         st.rerun()
                     else:
                         st.error("❌ 서비스 변경에 실패했습니다.")
-        
-        # 현재 선택된 서비스 정보를 간단하게 표시
-        if current_repo:
-            current_repo_info = next((repo for repo in repositories if repo['url'] == current_repo), None)
-            if current_repo_info:
-                st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; 
-                            text-align: center; padding: 0.5rem; border-radius: 8px; margin: 0.5rem 0;
-                            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                        <div style="font-size: 1.2rem;">🎯</div>
-                        <div>
-                            <h4 style="margin: 0; color: white; font-size: 0.9rem; font-weight: 600;">{current_repo_info['name']}</h4>
-                            <p style="margin: 0.1rem 0 0 0; color: rgba(255,255,255,0.8); font-size: 0.8rem;">📚 {current_repo_info['document_count']}개 문서</p>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
     
     except Exception as e:
         st.markdown(f"""
@@ -580,45 +559,14 @@ def render_chat_history():
         return
     
     try:
-        # 세션 관리
-        col1, col2, col3 = st.columns([2, 1, 1])
-        
-        with col1:
-            # 사용 가능한 세션 목록 조회
-            available_sessions = st.session_state.chatbot.get_all_sessions()
-            if not available_sessions:
-                available_sessions = ["default"]
-            
-            selected_session = st.selectbox(
-                "세션 선택",
-                available_sessions,
-                index=available_sessions.index(st.session_state.current_session_id) if st.session_state.current_session_id in available_sessions else 0
-            )
-            
-            if selected_session != st.session_state.current_session_id:
-                st.session_state.current_session_id = selected_session
-                st.rerun()
-        
-        with col2:
-            if st.button("🔄 새로고침"):
-                st.rerun()
-        
-        with col3:
-            if st.button("🗑️ 세션 삭제", type="secondary"):
-                if st.session_state.chatbot.delete_session(st.session_state.current_session_id):
-                    st.success("세션이 삭제되었습니다.")
-                    st.rerun()
-                else:
-                    st.error("세션 삭제에 실패했습니다.")
-        
         # 채팅 히스토리 조회
         chat_history = st.session_state.chatbot.get_chat_history(
-            st.session_state.current_session_id, 
+            "default", 
             limit=100
         )
         
         if not chat_history:
-            st.info("📝 선택한 세션에 채팅 기록이 없습니다.")
+            st.info("📝 채팅 기록이 없습니다.")
             return
         
         # 히스토리 통계
@@ -642,7 +590,7 @@ def render_chat_history():
         st.markdown("---")
         
         # 채팅 히스토리 표시
-        st.subheader(f"💬 세션: {st.session_state.current_session_id}")
+        st.subheader("💬 채팅 히스토리")
         
         for i, entry in enumerate(reversed(chat_history), 1):
             with st.expander(f"메시지 {len(chat_history) - i + 1}: {entry['question'][:50]}...", expanded=False):
@@ -672,7 +620,7 @@ def render_chat_history():
         if search_query:
             similar_questions = st.session_state.chatbot.get_similar_questions(
                 search_query, 
-                st.session_state.current_session_id, 
+                "default", 
                 k=5
             )
             
@@ -712,6 +660,36 @@ def main():
         render_repository_selector()
         # 채팅 인터페이스
         render_chat_interface()
+        
+        # 채팅 아래에 네비게이션 버튼들 추가
+        st.markdown("---")
+        st.markdown("""
+        <div style="text-align: center; margin: 1rem 0;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem;">🔧 시스템 관리</h4>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 네비게이션 버튼들 (원래 크기로)
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+        
+        with col1:
+            if st.button("📚 히스토리", use_container_width=True, key="nav_history_btn"):
+                st.session_state.current_page = "history"
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 시스템 정보", use_container_width=True, key="nav_info_btn"):
+                st.session_state.current_page = "info"
+                st.rerun()
+        
+        with col3:
+            if st.button("🔄 새로고침", use_container_width=True, key="refresh_btn"):
+                st.rerun()
+        
+        with col4:
+            if st.button("⚙️ 설정", use_container_width=True, key="settings_btn"):
+                st.session_state.current_page = "settings"
+                st.rerun()
     else:
         # 다른 페이지는 기존 방식
         render_header()

@@ -21,8 +21,6 @@ def render_chat_interface():
         st.warning("⚠️ 문의할 서비스를 먼저 선택해주세요.")
         return
     
-    # 세션 선택
-    render_session_selector()
     
     # 채팅 컨테이너
     chat_container = st.container()
@@ -38,44 +36,13 @@ def render_chat_interface():
         render_chat_controls()
 
 
-def render_session_selector():
-    """세션 선택기 렌더링"""
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        # 사용 가능한 세션 목록 조회
-        available_sessions = st.session_state.chatbot.get_all_sessions()
-        if not available_sessions:
-            available_sessions = ["default"]
-        
-        selected_session = st.selectbox(
-            "세션 선택",
-            available_sessions,
-            index=available_sessions.index(st.session_state.current_session_id) if st.session_state.current_session_id in available_sessions else 0,
-            help="다른 세션을 선택하면 해당 세션의 채팅 히스토리를 볼 수 있습니다."
-        )
-        
-        if selected_session != st.session_state.current_session_id:
-            st.session_state.current_session_id = selected_session
-            st.rerun()
-    
-    with col2:
-        if st.button("🆕 새 세션", help="새로운 세션을 시작합니다."):
-            import uuid
-            new_session_id = f"session_{uuid.uuid4().hex[:8]}"
-            st.session_state.current_session_id = new_session_id
-            st.rerun()
-    
-    with col3:
-        if st.button("🔄 새로고침", help="세션 목록을 새로고침합니다."):
-            st.rerun()
 
 
 def display_chat_history():
     """대화 기록 표시"""
     # 현재 세션의 채팅 히스토리 조회
     current_session_history = st.session_state.chatbot.get_chat_history(
-        st.session_state.current_session_id, 
+        "default", 
         limit=50
     )
     
@@ -218,7 +185,7 @@ def save_to_chat_history(entry):
                 st.session_state.chatbot.chat_history_manager.add_chat_message(
                     question=entry.get('question', ''),
                     answer=entry.get('answer', ''),
-                    session_id=entry.get('session_id', st.session_state.current_session_id),
+                    session_id=entry.get('session_id', "default"),
                     relevance_score=entry.get('relevance_score', 0.0),
                     search_source=entry.get('search_source', 'db'),
                     documents_used=entry.get('documents_used', 0)
@@ -489,10 +456,10 @@ def process_user_input(user_input):
     try:
         # 로딩 표시
         with st.spinner("🤔 생각 중..."):
-            # 챗봇에 질문 전달 (세션 ID 포함)
+            # 챗봇에 질문 전달
             result = st.session_state.chatbot.chat(
                 user_input, 
-                st.session_state.current_session_id
+                "default"
             )
             
             # 결과를 대화 기록에 추가
@@ -509,7 +476,7 @@ def process_user_input(user_input):
                 'github_issue_suggestion': result.get('github_issue_suggestion', None),
                 'answer_quality_score': result.get('answer_quality_score', 0.0),
                 'user_feedback': None,  # 사용자 피드백 (초기값: None)
-                'session_id': st.session_state.current_session_id,
+                'session_id': "default",
                 'similar_issues': result.get('similar_issues', []),
                 'issue_search_performed': result.get('issue_search_performed', False)
             }
@@ -530,12 +497,7 @@ def render_chat_controls():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("🗑️ 현재 세션 삭제", use_container_width=True):
-            if st.session_state.chatbot.delete_session(st.session_state.current_session_id):
-                st.success("✅ 현재 세션이 삭제되었습니다.")
-                st.rerun()
-            else:
-                st.error("❌ 세션 삭제에 실패했습니다.")
+        pass  # 빈 컬럼
     
     with col2:
         if st.button("📥 대화 내보내기", use_container_width=True):
