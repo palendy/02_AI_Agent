@@ -31,7 +31,6 @@ logging.basicConfig(
 from model import AIChatbot
 from components.sidebar import render_sidebar
 from components.chat_interface import render_chat_interface
-from components.repository_manager import render_repository_manager
 
 # 페이지 설정
 st.set_page_config(
@@ -291,7 +290,7 @@ def render_navigation():
     """네비게이션 렌더링"""
     st.markdown("---")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("💬 채팅", use_container_width=True):
@@ -299,16 +298,11 @@ def render_navigation():
             st.rerun()
     
     with col2:
-        if st.button("🎯 서비스 관리", use_container_width=True):
-            st.session_state.current_page = "repository"
-            st.rerun()
-    
-    with col3:
         if st.button("📚 채팅 히스토리", use_container_width=True):
             st.session_state.current_page = "history"
             st.rerun()
     
-    with col4:
+    with col3:
         if st.button("📊 시스템 정보", use_container_width=True):
             st.session_state.current_page = "info"
             st.rerun()
@@ -318,8 +312,6 @@ def render_main_content():
     """메인 콘텐츠 렌더링"""
     if st.session_state.current_page == "chat":
         render_chat_interface()
-    elif st.session_state.current_page == "repository":
-        render_repository_manager()
     elif st.session_state.current_page == "history":
         render_chat_history()
     elif st.session_state.current_page == "info":
