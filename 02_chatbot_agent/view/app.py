@@ -6,14 +6,29 @@ GitHub 문서 기반 지능형 챗봇 웹 인터페이스
 import streamlit as st
 import sys
 import os
+import logging
 from pathlib import Path
 
 # 프로젝트 루트를 Python 경로에 추가
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from model import AIChatbot
 from config import get_config
+
+# 환경 변수에서 로깅 레벨 읽기
+config = get_config()
+log_level = getattr(logging, config.log_level.upper(), logging.INFO)
+
+# 로깅 설정 (환경 변수에서 읽은 레벨 사용)
+logging.basicConfig(
+    level=log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # 콘솔에 출력
+    ]
+)
+
+from model import AIChatbot
 from components.sidebar import render_sidebar
 from components.chat_interface import render_chat_interface
 from components.repository_manager import render_repository_manager
