@@ -29,7 +29,7 @@ GitHub 문서를 기반으로 한 지능형 챗봇 시스템으로, Corrective R
 
 ### 5. **채팅 히스토리 관리**
 - **유사도 검색**: 과거 대화에서 관련 질문 자동 검색
-- **임계값 조정**: 유사도 0.5 이상에서 매칭 (기존 0.8에서 개선)
+- **임계값 조정**: 유사도 0.5 이상에서 매칭
 - **세션 관리**: 세션별 대화 기록 분리 및 관리
 - **통계 제공**: 채팅 히스토리 통계 및 분석
 
@@ -41,62 +41,172 @@ GitHub 문서를 기반으로 한 지능형 챗봇 시스템으로, Corrective R
 
 ## 🏗️ 시스템 아키텍처
 
-
-## 🔍 유사도 검색 시스템
-
-### 1. **채팅 히스토리 유사도 검색**
-```python
-# 유사도 계산 방식
-similarity_score = cosine_similarity(question_embedding, history_embedding)
-
-# 임계값 설정
-if similarity_score > 0.5:  # 0.8에서 0.5로 개선
-    return cached_answer
+```mermaid
+graph TB
+    A[사용자 질문] --> B[LangGraph 워크플로우]
+    B --> C[벡터 스토어 검색]
+    C --> D[관련성 평가]
+    D -->|통과| E[답변 생성]
+    D -->|실패| F[채팅 히스토리 검색]
+    F -->|발견| G[저장된 답변 반환]
+    F -->|없음| H[GitHub Issue 검색]
+    H --> I[Hybrid Search + Re-ranking]
+    I --> J[이슈 기반 답변]
+    E --> K[사용자 피드백]
+    G --> K
+    J --> K
+    K -->|만족| L[채팅 히스토리 저장]
+    K -->|불만족| M[저장하지 않음]
 ```
 
-### 2. **GitHub Issue Hybrid Search**
+## 🔍 핵심 코드 구조
+
+### 1. **LangGraph 워크플로우 노드**
+
 ```python
-# 1단계: BM25 스코어링
-bm25_score = calculate_bm25(question, issue_text)
-
-# 2단계: Dense Embedding
-dense_score = cosine_similarity(question_embedding, issue_embedding)
-
-# 3단계: Hybrid Score
-hybrid_score = bm25_score * 0.6 + dense_score * 0.4
-
-# 4단계: Cross-Encoder Re-ranking
-final_score = hybrid_score * 0.7 + cross_encoder_score * 0.3
+# model/langgraph_workflow.py
+class CorrectiveRAGWorkflow:
+    def __init__(self, vector_store, chat_history_manager, model_name):
+        self.vector_store = vector_store
+        self.chat_history_manager = chat_history_manager
+        self.llm = ChatOpenAI(model=model_name, temperature=0.1)
+        self._build_workflow()
+    
+    def _build_workflow(self):
+        """워크플로우 그래프 구성"""
+        workflow = StateGraph(CorrectiveRAGState)
+        
+        # 노드 추가
+        workflow.add_node("retrieve", self._retrieve_node)
+        workflow.add_node("grade", self._grade_node)
+        workflow.add_node("generate", self._generate_node)
+        workflow.add_node("rewrite", self._rewrite_node)
+        workflow.add_node("history_search", self._history_search_node)
+        workflow.add_node("issue_search", self._issue_search_node)
+        workflow.add_node("final_answer", self._final_answer_node)
+        
+        # 엣지 추가
+        workflow.add_edge("retrieve", "grade")
+        workflow.add_conditional_edges("grade", self._should_continue)
+        workflow.add_edge("rewrite", "retrieve")
+        workflow.add_edge("generate", "final_answer")
+        workflow.add_edge("history_search", "grade")
+        workflow.add_edge("issue_search", "final_answer")
+        
+        self.workflow = workflow.compile()
 ```
 
-### 3. **답변 품질 평가**
-```python
-# 답변 품질 점수 계산
-quality_score = evaluate_answer_quality(question, answer)
+### 2. **Hybrid Search 구현**
 
-# 저장 조건
-if quality_score >= 0.5 and user_feedback == 'satisfied':
-    save_to_chat_history(answer)
+```python
+# model/github_issue_helper.py
+class GitHubIssueHelper:
+    def search_similar_issues(self, question: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Hybrid Search + Cross-Encoder Re-ranking"""
+        try:
+            # 1. 후보 이슈 수집
+            candidate_issues = self._get_candidate_issues(question)
+            
+            # 2. Hybrid Score 계산
+            hybrid_scores = self._calculate_hybrid_scores(question, candidate_issues)
+            
+            # 3. Cross-Encoder Re-ranking
+            reranked_issues = self._cross_encoder_rerank(question, hybrid_scores, max_results)
+            
+            return reranked_issues
+        except Exception as e:
+            logger.error(f"GitHub Issue 검색 실패: {e}")
+            return []
+    
+    def _calculate_hybrid_scores(self, question: str, issues: List[Dict]) -> List[Dict]:
+        """BM25 + Dense Embedding Hybrid Score"""
+        question_embedding = self.embedding_model.embed_query(question)
+        
+        for issue in issues:
+            # BM25 Score (60%)
+            bm25_score = self._calculate_bm25_score(question, issue['text'])
+            
+            # Dense Score (40%)
+            dense_score = self._calculate_dense_score(question_embedding, issue['embedding'])
+            
+            # Hybrid Score
+            issue['hybrid_score'] = bm25_score * 0.6 + dense_score * 0.4
+        
+        return sorted(issues, key=lambda x: x['hybrid_score'], reverse=True)
 ```
 
-## 💾 데이터 저장 및 관리
+### 3. **채팅 히스토리 관리**
 
-### 1. **채팅 히스토리 저장**
-- **저장 조건**: 사용자 만족 + 품질 점수 0.5 이상
-- **저장 위치**: ChromaDB 벡터 스토어
-- **임베딩 모델**: text-embedding-3-large
-- **검색 방식**: 코사인 유사도
+```python
+# model/chat_history.py
+class ChatHistoryManager:
+    def search_similar_questions(self, question: str, k: int = 5) -> List[Dict[str, Any]]:
+        """유사한 질문 검색"""
+        try:
+            # 질문 임베딩
+            question_embedding = self.embedding_model.embed_query(question)
+            
+            # 유사도 검색
+            results = self.collection.query(
+                query_embeddings=[question_embedding],
+                n_results=k,
+                include=['metadatas', 'documents', 'distances']
+            )
+            
+            similar_questions = []
+            for i, (metadata, document, distance) in enumerate(zip(
+                results['metadatas'][0], 
+                results['documents'][0], 
+                results['distances'][0]
+            )):
+                similarity_score = 1 - distance
+                if similarity_score >= 0.5:  # 임계값 0.5
+                    similar_questions.append({
+                        'question': metadata['question'],
+                        'answer': document,
+                        'similarity_score': similarity_score,
+                        'session_id': metadata['session_id']
+                    })
+            
+            return similar_questions
+        except Exception as e:
+            logger.error(f"채팅 히스토리 검색 실패: {e}")
+            return []
+```
 
-### 2. **문서 벡터화**
-- **청크 크기**: 1500자
-- **오버랩**: 300자
-- **임베딩 모델**: text-embedding-3-large
-- **저장소**: ChromaDB (Repository별 분리)
+### 4. **Streamlit 웹 인터페이스**
 
-### 3. **세션 관리**
-- **세션 ID**: UUID 기반 고유 식별자
-- **분리 저장**: 세션별 대화 기록 분리
-- **통계 제공**: 세션별 채팅 수, 만족도 등
+```python
+# view/app.py
+def render_chat_interface():
+    """채팅 인터페이스 렌더링"""
+    # 채팅 히스토리 표시
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # 사용자 입력
+    if prompt := st.chat_input("질문을 입력하세요..."):
+        # 챗봇 응답 생성
+        with st.spinner("답변을 생성하는 중..."):
+            response = st.session_state.chatbot.generate_response(
+                prompt, 
+                st.session_state.current_session_id
+            )
+        
+        # 응답 표시
+        with st.chat_message("assistant"):
+            st.markdown(response['answer'])
+            
+            # 피드백 버튼
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("👍 만족", key="satisfied"):
+                    handle_feedback("satisfied", response)
+            with col2:
+                if st.button("👎 불만족", key="dissatisfied"):
+                    handle_feedback("dissatisfied", response)
+```
 
 ## 🛠️ 설치 및 실행
 
@@ -124,10 +234,11 @@ DEFAULT_MODEL_NAME=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-large
 RELEVANCE_THRESHOLD=0.6
 GITHUB_REPOSITORIES=https://github.com/owner/repo1,https://github.com/owner/repo2
+LOG_LEVEL=INFO
 
 # ChromaDB 설정
-CHROMA_MAX_SIZE=0  # 문서 저장용 최대 크기 (0=제한 없음)
-CHAT_HISTORY_MAX_SIZE=2147483648  # 채팅 히스토리 최대 크기 (2GB)
+CHROMA_MAX_SIZE=0
+CHAT_HISTORY_MAX_SIZE=2147483648
 ```
 
 ### 3. **실행**
@@ -177,42 +288,6 @@ graph TD
     style O fill:#ffebee
 ```
 
-### LangGraph 노드 및 엣지 구조
-
-```mermaid
-graph TD
-    START([START]) --> retrieve[retrieve]
-    retrieve --> grade[grade]
-    grade -->|관련성 통과| generate[generate]
-    grade -->|관련성 부족| rewrite[rewrite]
-    grade -->|최대 재시도 도달| final_answer[final_answer]
-    grade -->|DB 검색 후 재시도| history_search[history_search]
-    grade -->|History 검색 후| issue_search[issue_search]
-    rewrite --> retrieve
-    history_search --> grade
-    issue_search --> final_answer
-    generate --> END([END])
-    final_answer --> END([END])
-    
-    style START fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
-    style END fill:#f44336,color:#fff,stroke:#c62828,stroke-width:3px
-    style retrieve fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style grade fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style generate fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    style rewrite fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style history_search fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style issue_search fill:#e0f2f1,stroke:#00695c,stroke-width:2px
-    style final_answer fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-```
-
-### LangGraph 핵심 개념
-
-- **GraphState(상태 저장 그래프)**: LangGraph는 그래프의 각 노드가 계산의 단계를 나타내며, 그래프는 계산이 진행됨에 따라 전달되고 업데이트되는 상태를 유지하는 상태 저장 그래프 개념을 중심으로 작동합니다.
-
-- **Node(노드)**: 노드는 LangGraph의 구성 요소입니다. 각 노드는 함수 또는 계산 단계를 나타냅니다. 입력 처리, 의사 결정, 외부 API와의 상호 작용 등 특정 작업을 수행하도록 노드를 정의할 수 있습니다.
-
-- **Edge(엣지)**: 에지는 그래프에서 노드를 연결하여 계산의 흐름을 정의합니다. LangGraph는 조건부 에지를 지원하므로 그래프의 현재 상태에 따라 실행할 다음 노드를 동적으로 결정할 수 있습니다.
-
 ## 🔧 주요 설정
 
 ### 1. **검색 설정**
@@ -236,12 +311,6 @@ CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Re-ranking
 ```python
 CHROMA_MAX_SIZE = 0  # 문서 저장용 최대 크기 (0=제한 없음)
 CHAT_HISTORY_MAX_SIZE = 2147483648  # 채팅 히스토리 최대 크기 (2GB)
-```
-
-### 4. **GitHub 설정**
-```python
-GITHUB_REPOSITORIES = "repo1,repo2"  # 검색할 Repository 목록
-GITHUB_TOKEN = "your_token"          # GitHub API 토큰
 ```
 
 ## 📈 사용 예시
@@ -282,9 +351,12 @@ GITHUB_TOKEN = "your_token"          # GitHub API 토큰
 ### v2.2 (현재)
 - ✅ Hybrid Search + Cross-Encoder Re-ranking
 - ✅ 사용자 피드백 시스템
-- ✅ 유사도 검색 임계값 최적화
+- ✅ 유사도 검색 임계값 최적화 (0.8 → 0.5)
 - ✅ 오타 자동 보정
 - ✅ 코드 정리 및 최적화
+- ✅ UI 개선 (서비스 선택 버튼 최적화)
+- ✅ 상세한 로깅 시스템
+- ✅ 환경 변수 기반 로그 레벨 설정
 
 ### v2.1
 - ✅ GitHub Issue 제안 시스템
@@ -297,22 +369,31 @@ GITHUB_TOKEN = "your_token"          # GitHub API 토큰
 - ✅ 채팅 히스토리 관리
 - ✅ 관련성 임계값 조정
 
-## 🤝 기여하기
+## 📁 프로젝트 구조
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+```
+02_chatbot_agent/
+├── model/                          # 핵심 모델 구현
+│   ├── langgraph_workflow.py      # LangGraph 워크플로우
+│   ├── rag_agent.py               # Corrective RAG Agent
+│   ├── github_issue_helper.py     # GitHub Issue 검색
+│   ├── chat_history.py            # 채팅 히스토리 관리
+│   ├── vector_store.py            # 벡터 스토어 관리
+│   └── github_extractor.py        # GitHub 문서 추출
+├── view/                          # 웹 인터페이스
+│   ├── app.py                     # 메인 Streamlit 앱
+│   └── components/                # UI 컴포넌트
+├── config.py                      # 설정 관리
+├── main.py                        # CLI 인터페이스
+├── run_streamlit.py              # Streamlit 실행 스크립트
+├── requirements.txt               # 의존성 목록
+└── README.md                      # 프로젝트 문서
+```
+
 
 ## 📄 라이선스
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다.
 
-## 📞 지원
-
-문제가 발생하거나 질문이 있으시면 GitHub Issues를 통해 문의해주세요.
 
 ---
-
-**AI Agent Chatbot v2.2** - 더 정확하고 지능적인 답변을 위한 최신 RAG 기술의 집약체
