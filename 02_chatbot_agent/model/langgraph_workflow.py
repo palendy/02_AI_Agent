@@ -79,7 +79,6 @@ class CorrectiveRAGWorkflow:
         workflow.add_node("rewrite", self._rewrite_node)
         workflow.add_node("history_search", self._history_search_node)
         workflow.add_node("final_answer", self._final_answer_node)
-        workflow.add_node("error", self._error_node)
         
         # 시작점 설정
         workflow.set_entry_point("retrieve")
@@ -95,8 +94,7 @@ class CorrectiveRAGWorkflow:
                 "generate": "generate",
                 "rewrite": "rewrite",
                 "history_search": "history_search",
-                "final_answer": "final_answer",
-                "error": "error"
+                "final_answer": "final_answer"
             }
         )
         
@@ -111,9 +109,6 @@ class CorrectiveRAGWorkflow:
         
         # 최종 답변 후 종료
         workflow.add_edge("final_answer", END)
-        
-        # 에러 후 종료
-        workflow.add_edge("error", END)
         
         return workflow.compile()
     
@@ -391,11 +386,6 @@ class CorrectiveRAGWorkflow:
         except Exception as e:
             logger.error(f"답변 품질 평가 실패: {e}")
             return 0.5  # 기본값
-    
-    def _error_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
-        """에러 처리 노드"""
-        error_msg = state.get("error_message", "알 수 없는 오류가 발생했습니다.")
-        return {"final_answer": f"오류: {error_msg}"}
     
     def _should_retry(self, state: CorrectiveRAGState) -> str:
         """재시도 여부 결정"""

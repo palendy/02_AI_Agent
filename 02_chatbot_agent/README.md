@@ -57,6 +57,8 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 - **채팅 히스토리**: 이전 대화를 벡터화하여 저장하고 검색
 - **유사 질문 검색**: 과거 대화에서 관련 질문과 답변 찾기
 - **상세 정보 표시**: 검색 소스, 관련성 점수, 사용된 문서 수 등
+- **답변 품질 평가**: AI가 답변의 품질을 자동으로 평가하여 표시
+- **GitHub Issue 제안**: 답변 실패시 자동으로 GitHub Issue 생성 제안
 - **통계 및 분석**: 대화 패턴 및 시스템 성능 분석
 
 ### 4. 시스템 관리
@@ -107,15 +109,13 @@ graph TD
     grade -->|관련성 통과| generate[generate<br/>답변 생성]
     grade -->|관련성 부족| rewrite[rewrite<br/>쿼리 재작성]
     grade -->|DB 검색 후 재시도| history_search[history_search<br/>채팅 히스토리 검색]
-    grade -->|최대 재시도 도달| final_answer[final_answer<br/>최종 답변]
-    grade -->|에러 발생| error[error<br/>에러 처리]
+    grade -->|최대 재시도 도달| final_answer[final_answer<br/>최종 답변 + GitHub Issue 제안]
     
     rewrite --> retrieve
     history_search --> grade
     
     generate --> END1([종료])
     final_answer --> END2([종료])
-    error --> END3([종료])
 ```
 
 ### LangGraph 워크플로우 노드 상세
@@ -146,26 +146,24 @@ graph TD
 - **출력**: 히스토리 검색 결과
 
 #### 6. final_answer (최종 답변)
-- **기능**: 최대 재시도 도달시 또는 히스토리 검색 후 최종 답변
+- **기능**: 최대 재시도 도달시 또는 히스토리 검색 후 최종 답변 생성
 - **조건**: 최대 재시도 횟수 도달 또는 히스토리 검색 후 관련성 부족
-- **출력**: 최종 답변
-
-#### 7. error (에러 처리)
-- **기능**: 에러 발생시 에러 메시지 반환
-- **조건**: 처리 중 예외 발생
-- **출력**: 에러 메시지
+- **출력**: 최종 답변 + 답변 품질 평가 + GitHub Issue 제안
+- **특별 기능**:
+  - 답변 품질 자동 평가 (0.0-1.0 점수)
+  - 답변 실패시 GitHub Issue 생성 제안
+  - 편집 가능한 Issue 제안 폼 제공
 
 ### 조건부 분기 로직
 
 `_should_retry` 함수에서 다음 조건들을 순차적으로 확인합니다:
 
-1. **에러 발생** → `error` 노드로 이동
-2. **최대 재시도 도달** → `final_answer` 노드로 이동
-3. **관련성 부족**:
+1. **최대 재시도 도달** → `final_answer` 노드로 이동
+2. **관련성 부족**:
    - DB 검색 후 1회 재시도 → `history_search` 노드로 이동
    - 히스토리 검색 후 2회 재시도 → `final_answer` 노드로 이동
    - 그 외의 경우 → `rewrite` 노드로 이동
-4. **관련성 통과** → `generate` 노드로 이동
+3. **관련성 통과** → `generate` 노드로 이동
 
 ### 컴포넌트 설명
 
@@ -497,35 +495,47 @@ session_history = history_manager.get_session_history("session_001")
 - **SQLite**: 로컬 데이터베이스
 - **Logging**: 시스템 로깅
 
-## 🆕 최신 업데이트 (v2.0)
+## 🆕 최신 업데이트 (v2.1)
 
 ### 주요 변경사항
 
-#### 1. 채팅 히스토리 시스템 도입
+#### 1. GitHub Issue 제안 시스템 도입
+- **자동 Issue 제안**: 답변 실패시 자동으로 GitHub Issue 생성 제안
+- **답변 품질 평가**: AI가 답변의 품질을 0.0-1.0 점수로 자동 평가
+- **편집 가능한 Issue 폼**: 제목, 본문, 라벨을 사용자가 수정할 수 있는 폼 제공
+- **Issue 생성 버튼**: 미리보기, 생성, 취소 버튼으로 사용자 편의성 향상
+- **시스템 정보 자동 포함**: 모델명, 임계값, 문서 수 등 자동으로 Issue에 포함
+
+#### 2. 워크플로우 단순화
+- **error 노드 제거**: 모든 에러 처리를 final_answer 노드에서 통합 처리
+- **답변 품질 기반 제안**: 답변 품질이 낮거나 검색 결과가 없을 때 Issue 제안
+- **통합된 최종 처리**: final_answer 노드에서 답변 생성, 품질 평가, Issue 제안을 모두 처리
+
+#### 3. 채팅 히스토리 시스템 도입
 - **채팅 히스토리 벡터화**: 모든 질문-답변을 ChromaDB에 저장
 - **지능형 답변 재사용**: 유사한 질문에 대해 이전 답변 우선 제공
 - **다단계 검색 시스템**: DB → 채팅 히스토리 → 최종 답변 순으로 검색
 
-#### 2. 세션 관리 시스템
+#### 4. 세션 관리 시스템
 - **다중 세션 지원**: 여러 대화 세션을 독립적으로 관리
 - **세션별 히스토리**: 각 세션의 대화 기록을 별도로 저장
 - **세션 전환**: 웹 UI에서 세션 간 자유로운 전환
 - **세션 삭제**: 불필요한 세션 삭제 기능
 
-#### 3. 향상된 웹 인터페이스
+#### 5. 향상된 웹 인터페이스
 - **채팅 히스토리 페이지**: 전용 히스토리 관리 페이지 추가
 - **유사 질문 검색**: 과거 대화에서 관련 질문 찾기
 - **실시간 통계**: 채팅 히스토리 통계 및 분석
 - **개선된 UI/UX**: 더 직관적이고 사용하기 쉬운 인터페이스
 
-#### 4. LangGraph 워크플로우 도입
+#### 6. LangGraph 워크플로우 도입
 - **상태 기반 관리**: 복잡한 AI 에이전트 로직을 그래프로 관리
 - **자동 재시도**: 관련성 부족시 자동으로 쿼리 재작성 및 재검색
 - **다중 검색 소스**: 벡터 스토어 → 채팅 히스토리 → 최종 답변 순으로 검색
-- **에러 처리**: 각 단계별 예외 상황 처리 및 복구
+- **통합된 에러 처리**: 모든 에러 상황을 final_answer 노드에서 처리
 
-#### 5. 성능 최적화
-- **관련성 임계값 조정**: 0.5 → 0.3으로 조정하여 더 관대한 검색
+#### 7. 성능 최적화
+- **관련성 임계값 조정**: 0.5 → 0.6으로 조정하여 더 정확한 검색
 - **캐시 시스템**: 이전 답변 재사용으로 응답 속도 향상
 - **메모리 효율성**: 불필요한 웹 검색 제거로 리소스 절약
 
@@ -541,10 +551,37 @@ workflow = CorrectiveRAGWorkflow(
     chat_history_manager=chat_history_manager
 )
 
-# 질문 처리 (자동으로 관련성 평가, 재시도, 답변 생성)
+# 질문 처리 (자동으로 관련성 평가, 재시도, 답변 생성, GitHub Issue 제안)
 result = workflow.process_question(
     question="질문",
     session_id="session_001"
+)
+
+# 결과에 GitHub Issue 제안이 포함됨
+if result.get('github_issue_suggestion'):
+    issue_suggestion = result['github_issue_suggestion']
+    print(f"Issue 제안: {issue_suggestion['title']}")
+    print(f"Issue URL: {issue_suggestion['url']}")
+
+# 답변 품질 점수 확인
+quality_score = result.get('answer_quality_score', 0.0)
+print(f"답변 품질: {quality_score:.2f}")
+
+# GitHub Issue Helper 사용
+from model.github_issue_helper import GitHubIssueHelper
+
+# Issue Helper 초기화
+issue_helper = GitHubIssueHelper("https://github.com/owner/repo")
+
+# Issue 제안 생성
+issue_suggestion = issue_helper.suggest_issue_creation(
+    question="질문",
+    error_message="에러 메시지",
+    system_info={
+        'model_name': 'gpt-4o-mini',
+        'relevance_threshold': 0.6,
+        'document_count': 0
+    }
 )
 
 # 새로운 채팅 히스토리 관리
