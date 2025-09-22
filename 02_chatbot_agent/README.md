@@ -177,7 +177,8 @@ graph TD
 
 ```mermaid
 graph TD
-    A[rewrite] --> B[search]
+    START([START]) --> A[rewrite]
+    A --> B[search]
     B --> C[grade]
     C -->|관련성 통과| D[generate]
     C -->|관련성 부족| E[retry]
@@ -185,9 +186,12 @@ graph TD
     E -->|retry_count >= 3| F[history_search]
     F -->|유사한 질문 발견| G[final_answer]
     F -->|유사한 질문 없음| H[issue_search]
-    H --> I[final_answer]
-    D --> I
+    H --> G
+    D --> G
+    G --> END([END])
     
+    style START fill:#4caf50,color:#fff
+    style END fill:#f44336,color:#fff
     style A fill:#e3f2fd
     style B fill:#e8f5e8
     style C fill:#fff3e0
@@ -196,7 +200,6 @@ graph TD
     style F fill:#f3e5f5
     style G fill:#c8e6c9
     style H fill:#e0f2f1
-    style I fill:#c8e6c9
 ```
 
 ## 🔧 주요 설정
