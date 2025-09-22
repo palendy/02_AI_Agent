@@ -87,11 +87,6 @@ def check_api_keys(config):
     except:
         api_status["OpenAI API Key"] = False
     
-    try:
-        _ = config.tavily_api_key
-        api_status["Tavily API Key"] = True
-    except:
-        api_status["Tavily API Key"] = False
     
     api_status["GitHub Token"] = bool(config.github_token)
     
@@ -163,7 +158,7 @@ def render_help_section():
         - **Corrective RAG**: 문서 관련성을 자동 평가하고 쿼리를 재작성
         - **LangGraph**: 복잡한 AI 워크플로우를 관리
         - **벡터 검색**: ChromaDB를 사용한 효율적인 문서 검색
-        - **웹 검색**: Tavily를 통한 실시간 웹 정보 검색
+        - **채팅 히스토리**: 이전 대화를 벡터화하여 재사용
         """)
 
 

@@ -127,10 +127,10 @@ class CorrectiveRAGWorkflow:
                     k=self.config.max_search_results
                 )
             else:
-                # 웹 검색
-                results = self.rag_agent.web_search_documents(
+                # 채팅 히스토리 검색
+                results = self.rag_agent.search_chat_history(
                     state["current_query"],
-                    max_results=self.config.max_search_results
+                    k=self.config.max_search_results
                 )
             
             return {

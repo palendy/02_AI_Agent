@@ -41,13 +41,6 @@ class Config:
             raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
         return key
     
-    @property
-    def tavily_api_key(self) -> str:
-        """Tavily API 키 (웹 검색용)"""
-        key = os.getenv("TAVILY_API_KEY")
-        if not key:
-            raise ValueError("TAVILY_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
-        return key
     
     @property
     def github_token(self) -> Optional[str]:
@@ -155,7 +148,6 @@ class Config:
         try:
             # 필수 API 키들 확인
             _ = self.openai_api_key
-            _ = self.tavily_api_key
             return True
         except ValueError as e:
             print(f"❌ 설정 검증 실패: {e}")

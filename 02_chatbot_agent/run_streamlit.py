@@ -32,7 +32,6 @@ def check_env_file():
         print("⚠️ .env 파일이 없습니다.")
         print("다음 환경 변수들을 설정하세요:")
         print("- OPENAI_API_KEY")
-        print("- TAVILY_API_KEY")
         print("- GITHUB_TOKEN (선택사항)")
         print("- GITHUB_REPOSITORIES (선택사항)")
         return False

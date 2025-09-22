@@ -43,12 +43,13 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 - **자동 청킹**: 문서를 의미 있는 단위로 분할하여 검색 정확도 향상
 - **벡터 임베딩**: OpenAI Embeddings를 사용한 고품질 벡터화
 
-### 2. 지능형 검색
+### 2. 지능형 검색 (Corrective RAG)
 - **의미 기반 검색**: 벡터 유사도 검색으로 의미적으로 관련된 문서 찾기
 - **관련성 평가**: AI가 검색된 문서의 질을 자동 평가
 - **쿼리 재작성**: 관련성이 낮을 경우 쿼리를 자동으로 개선
 - **채팅 히스토리 검색**: 이전 대화에서 유사한 질문과 답변을 찾아 재사용
 - **다단계 검색**: DB → 채팅 히스토리 → 최종 답변 순으로 검색
+- **LangGraph 워크플로우**: 상태 기반 그래프로 복잡한 검색 로직 관리
 
 ### 3. 대화 인터페이스
 - **실시간 채팅**: Streamlit 기반의 직관적인 채팅 UI
@@ -65,6 +66,8 @@ AI Agent Chatbot은 GitHub 저장소에서 문서를 자동으로 추출하고, 
 - **모니터링**: 시스템 상태 및 성능 지표 실시간 확인
 
 ## 🏗️ 시스템 아키텍처
+
+### 전체 시스템 구조
 
 ```mermaid
 graph TB
@@ -93,6 +96,76 @@ graph TB
     S --> T[벡터 임베딩]
     T --> H
 ```
+
+### LangGraph 워크플로우 상세 구조
+
+```mermaid
+graph TD
+    START([시작]) --> retrieve[retrieve<br/>문서 검색]
+    retrieve --> grade[grade<br/>관련성 평가]
+    
+    grade -->|관련성 통과| generate[generate<br/>답변 생성]
+    grade -->|관련성 부족| rewrite[rewrite<br/>쿼리 재작성]
+    grade -->|DB 검색 후 재시도| history_search[history_search<br/>채팅 히스토리 검색]
+    grade -->|최대 재시도 도달| final_answer[final_answer<br/>최종 답변]
+    grade -->|에러 발생| error[error<br/>에러 처리]
+    
+    rewrite --> retrieve
+    history_search --> grade
+    
+    generate --> END1([종료])
+    final_answer --> END2([종료])
+    error --> END3([종료])
+```
+
+### LangGraph 워크플로우 노드 상세
+
+#### 1. retrieve (문서 검색)
+- **기능**: 사용자 질문에 대한 관련 문서 검색
+- **검색 소스**: 벡터 스토어 (기본) 또는 웹 검색
+- **출력**: 검색된 문서 목록
+
+#### 2. grade (관련성 평가)
+- **기능**: 검색된 문서들의 관련성 평가
+- **평가 기준**: 관련성 점수와 임계값 비교
+- **출력**: 관련성 여부 및 점수
+
+#### 3. generate (답변 생성)
+- **기능**: 관련성 통과시 최종 답변 생성
+- **입력**: 사용자 질문 + 관련 문서
+- **출력**: 최종 답변
+
+#### 4. rewrite (쿼리 재작성)
+- **기능**: 관련성 부족시 쿼리 재작성
+- **조건**: 관련성 점수가 임계값 미만
+- **출력**: 개선된 쿼리
+
+#### 5. history_search (채팅 히스토리 검색)
+- **기능**: DB 검색 실패시 채팅 히스토리에서 검색
+- **조건**: DB 검색 후 1회 재시도
+- **출력**: 히스토리 검색 결과
+
+#### 6. final_answer (최종 답변)
+- **기능**: 최대 재시도 도달시 또는 히스토리 검색 후 최종 답변
+- **조건**: 최대 재시도 횟수 도달 또는 히스토리 검색 후 관련성 부족
+- **출력**: 최종 답변
+
+#### 7. error (에러 처리)
+- **기능**: 에러 발생시 에러 메시지 반환
+- **조건**: 처리 중 예외 발생
+- **출력**: 에러 메시지
+
+### 조건부 분기 로직
+
+`_should_retry` 함수에서 다음 조건들을 순차적으로 확인합니다:
+
+1. **에러 발생** → `error` 노드로 이동
+2. **최대 재시도 도달** → `final_answer` 노드로 이동
+3. **관련성 부족**:
+   - DB 검색 후 1회 재시도 → `history_search` 노드로 이동
+   - 히스토리 검색 후 2회 재시도 → `final_answer` 노드로 이동
+   - 그 외의 경우 → `rewrite` 노드로 이동
+4. **관련성 통과** → `generate` 노드로 이동
 
 ### 컴포넌트 설명
 
@@ -141,8 +214,7 @@ cp .env_example .env
 # OpenAI API 설정
 OPENAI_API_KEY=your_openai_api_key_here
 
-# Tavily API 설정 (제거됨 - 채팅 히스토리로 대체)
-# TAVILY_API_KEY=your_tavily_api_key_here
+# Tavily API는 제거되었습니다. 채팅 히스토리 시스템을 사용합니다.
 
 # GitHub 설정
 GITHUB_TOKEN=your_github_token_here
@@ -171,8 +243,6 @@ MAX_SEARCH_RESULTS=5
 3. 필요한 권한 선택 (repo, read:org 등)
 4. 생성된 토큰을 `GITHUB_TOKEN`에 설정
 
-#### Tavily API 키 (제거됨)
-- **참고**: Tavily API는 제거되었습니다. 대신 채팅 히스토리 시스템을 사용합니다.
 
 ## 📖 사용 방법
 
@@ -305,6 +375,75 @@ vector_store.add_documents(documents)
 results = vector_store.similarity_search("검색 쿼리", k=5)
 ```
 
+### CorrectiveRAGWorkflow 클래스
+
+LangGraph를 사용한 Corrective RAG 워크플로우를 관리하는 클래스입니다.
+
+```python
+from model.langgraph_workflow import CorrectiveRAGWorkflow
+from model.vector_store import DocumentVectorStore
+from model.chat_history import ChatHistoryManager
+
+# 워크플로우 초기화
+vector_store = DocumentVectorStore()
+chat_history_manager = ChatHistoryManager()
+
+workflow = CorrectiveRAGWorkflow(
+    vector_store=vector_store,
+    chat_history_manager=chat_history_manager,
+    model_name="gpt-4o-mini"
+)
+
+# 질문 처리
+result = workflow.process_question(
+    question="GitHub에서 문서를 추출하는 방법은?",
+    session_id="user_session_123"
+)
+
+# 결과 확인
+print(f"질문: {result['question']}")
+print(f"답변: {result['answer']}")
+print(f"검색 소스: {result['search_source']}")
+print(f"관련성 점수: {result['relevance_score']:.3f}")
+print(f"재시도 횟수: {result['retry_count']}")
+print(f"사용된 문서 수: {result['documents_used']}")
+
+# 워크플로우 정보 조회
+info = workflow.get_workflow_info()
+print(f"모델명: {info['model_name']}")
+print(f"최대 재시도: {info['max_retries']}")
+print(f"관련성 임계값: {info['relevance_threshold']}")
+```
+
+### ChatHistoryManager 클래스
+
+채팅 히스토리를 벡터화하여 저장하고 검색하는 클래스입니다.
+
+```python
+from model.chat_history import ChatHistoryManager
+
+# 채팅 히스토리 매니저 초기화
+history_manager = ChatHistoryManager()
+
+# 질문-답변 저장
+history_manager.add_chat_message(
+    question="질문",
+    answer="답변",
+    session_id="session_001",
+    relevance_score=0.85,
+    search_source="db",
+    documents_used=3
+)
+
+# 유사한 질문 검색
+similar_questions = history_manager.search_similar_questions(
+    "검색할 질문", k=3
+)
+
+# 세션별 채팅 히스토리 조회
+session_history = history_manager.get_session_history("session_001")
+```
+
 ## 📁 프로젝트 구조
 
 ```
@@ -338,8 +477,8 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 ### 백엔드
 - **Python 3.8+**: 메인 프로그래밍 언어
 - **LangChain**: LLM 애플리케이션 프레임워크
-- **LangGraph**: 상태 기반 AI 워크플로우 관리
-- **ChromaDB**: 벡터 데이터베이스
+- **LangGraph**: 상태 기반 AI 워크플로우 관리 (Corrective RAG 구현)
+- **ChromaDB**: 벡터 데이터베이스 (문서 및 채팅 히스토리)
 - **OpenAI API**: GPT-4o-mini 및 Embeddings
 
 ### 프론트엔드
@@ -355,7 +494,6 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 - **python-docx**: Word 문서 처리
 
 ### 기타 도구
-- **ChromaDB**: 벡터 데이터베이스 (문서 및 채팅 히스토리)
 - **SQLite**: 로컬 데이터베이스
 - **Logging**: 시스템 로깅
 
@@ -363,8 +501,7 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 
 ### 주요 변경사항
 
-#### 1. Tavily API 제거 및 채팅 히스토리 시스템 도입
-- **Tavily API 완전 제거**: 웹 검색 의존성 제거
+#### 1. 채팅 히스토리 시스템 도입
 - **채팅 히스토리 벡터화**: 모든 질문-답변을 ChromaDB에 저장
 - **지능형 답변 재사용**: 유사한 질문에 대해 이전 답변 우선 제공
 - **다단계 검색 시스템**: DB → 채팅 히스토리 → 최종 답변 순으로 검색
@@ -381,7 +518,13 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 - **실시간 통계**: 채팅 히스토리 통계 및 분석
 - **개선된 UI/UX**: 더 직관적이고 사용하기 쉬운 인터페이스
 
-#### 4. 성능 최적화
+#### 4. LangGraph 워크플로우 도입
+- **상태 기반 관리**: 복잡한 AI 에이전트 로직을 그래프로 관리
+- **자동 재시도**: 관련성 부족시 자동으로 쿼리 재작성 및 재검색
+- **다중 검색 소스**: 벡터 스토어 → 채팅 히스토리 → 최종 답변 순으로 검색
+- **에러 처리**: 각 단계별 예외 상황 처리 및 복구
+
+#### 5. 성능 최적화
 - **관련성 임계값 조정**: 0.5 → 0.3으로 조정하여 더 관대한 검색
 - **캐시 시스템**: 이전 답변 재사용으로 응답 속도 향상
 - **메모리 효율성**: 불필요한 웹 검색 제거로 리소스 절약
@@ -389,6 +532,21 @@ results = vector_store.similarity_search("검색 쿼리", k=5)
 ### 기술적 개선사항
 
 ```python
+# LangGraph 워크플로우 사용
+from model.langgraph_workflow import CorrectiveRAGWorkflow
+
+# 워크플로우 초기화
+workflow = CorrectiveRAGWorkflow(
+    vector_store=vector_store,
+    chat_history_manager=chat_history_manager
+)
+
+# 질문 처리 (자동으로 관련성 평가, 재시도, 답변 생성)
+result = workflow.process_question(
+    question="질문",
+    session_id="session_001"
+)
+
 # 새로운 채팅 히스토리 관리
 from model.chat_history import ChatHistoryManager
 
@@ -412,7 +570,7 @@ similar_questions = history_manager.search_similar_questions(
 
 기존 사용자는 다음 사항을 확인하세요:
 
-1. **환경 변수 업데이트**: `TAVILY_API_KEY` 제거
+1. **환경 변수 업데이트**: Tavily API 관련 설정 제거
 2. **의존성 업데이트**: `pip install -r requirements.txt`
 3. **데이터 마이그레이션**: 기존 채팅 데이터는 자동으로 새 시스템으로 이전
 
@@ -502,6 +660,7 @@ mypy .
 ## 🙏 감사의 말
 
 - [LangChain](https://langchain.com) - LLM 애플리케이션 프레임워크
+- [LangGraph](https://langchain-ai.github.io/langgraph/) - 상태 기반 AI 워크플로우 관리
 - [Streamlit](https://streamlit.io) - 웹 애플리케이션 프레임워크
 - [OpenAI](https://openai.com) - AI 모델 및 API
 - [ChromaDB](https://chromadb.com) - 벡터 데이터베이스
