@@ -1,24 +1,22 @@
 """
 GitHub Issue Helper
-에러 발생 시 GitHub Issue 등록을 도와주는 클래스
+Hybrid Search + Cross-Encoder Re-ranking을 사용한 GitHub Issue 검색
 """
 
 import os
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 import requests
 from urllib.parse import quote
 import re
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 from collections import Counter
 import math
 
 from config import get_config
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from sentence_transformers import CrossEncoder
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitHubIssueHelper:
-    """GitHub Issue 등록을 도와주는 클래스"""
+    """Hybrid Search + Cross-Encoder Re-ranking을 사용한 GitHub Issue 검색"""
     
     def __init__(self, repository_url: str = None):
         """
@@ -42,24 +40,24 @@ class GitHubIssueHelper:
         # Repository 정보 파싱
         self.owner, self.repo = self._parse_repository_url()
         
-        # 임베딩 모델 초기화
+        # Dense Embedding 모델 초기화 (OpenAI)
         self.embedding_model = OpenAIEmbeddings(
             openai_api_key=self.config.openai_api_key,
             model=self.config.embedding_model
         )
         
-        # 텍스트 분할기 초기화
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-        )
+        # Cross-Encoder 모델 초기화 (Re-ranking용)
+        self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
         
-        # 불용어 목록 (한국어 + 영어)
+        # BM25 파라미터
+        self.bm25_k1 = 1.2
+        self.bm25_b = 0.75
+        
+        # 불용어 목록
         self.stop_words = {
             '이', '가', '을', '를', '에', '에서', '로', '으로', '의', '와', '과', '는', '은', '도', '만', 
             '부터', '까지', '에게', '한테', '께', '처럼', '같이', '보다', '마다', '조차', '마저', '뿐',
-            '어떻게', '무엇', '언제', '어디서', '왜', '누가', '어느', '몇', '얼마나',
+            '어떻게', '무엇', '언제', '어디서', '왜', '누가', '어느', '몇', '얼마나', '뭐야', '뭐',
             'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
             'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
             'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall'
@@ -252,8 +250,7 @@ class GitHubIssueHelper:
     
     def search_similar_issues(self, question: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """
-        하이브리드 검색 기반 유사한 GitHub Issue 검색
-        (BM25 + 의미적 유사도 + 키워드 매칭)
+        Hybrid Search + Cross-Encoder Re-ranking을 사용한 GitHub Issue 검색
         
         Args:
             question: 검색할 질문
@@ -267,64 +264,140 @@ class GitHubIssueHelper:
                 logger.warning("GitHub 토큰이 없어 이슈 검색을 할 수 없습니다.")
                 return []
             
-            logger.info(f"하이브리드 GitHub 이슈 검색 시작: {question}")
+            logger.info(f"Hybrid Search + Cross-Encoder Re-ranking 시작: {question}")
             
-            # 1단계: 키워드 기반 초기 검색으로 후보 이슈들 수집
-            candidate_issues = self._get_candidate_issues(question, max_results * 4)  # 4배 더 많이 가져와서 필터링
+            # 1단계: GitHub API로 후보 이슈들 수집
+            candidate_issues = self._get_candidate_issues(question, max_results * 3)
             
             if not candidate_issues:
                 logger.info("후보 이슈가 없습니다.")
                 return []
             
-            # 2단계: 하이브리드 스코어링 (BM25 + 의미적 유사도 + 키워드 매칭)
-            scored_issues = self._calculate_hybrid_similarity(question, candidate_issues)
+            # 2단계: Hybrid Search (BM25 + Dense Embedding)
+            hybrid_scores = self._calculate_hybrid_scores(question, candidate_issues)
             
-            # 3단계: 최종 스코어 순으로 정렬하고 상위 결과 반환
-            scored_issues.sort(key=lambda x: x['final_score'], reverse=True)
-            top_issues = scored_issues[:max_results]
+            # 3단계: Cross-Encoder Re-ranking
+            reranked_issues = self._cross_encoder_rerank(question, hybrid_scores, max_results)
             
-            logger.info(f"하이브리드 검색으로 유사한 이슈 {len(top_issues)}개 발견")
-            return top_issues
+            logger.info(f"Hybrid Search + Re-ranking으로 유사한 이슈 {len(reranked_issues)}개 발견")
+            return reranked_issues
                 
         except Exception as e:
-            logger.error(f"하이브리드 이슈 검색 실패: {e}")
+            logger.error(f"Hybrid Search + Re-ranking 실패: {e}")
             return []
     
     def _get_candidate_issues(self, question: str, max_candidates: int = 15) -> List[Dict[str, Any]]:
-        """키워드 기반으로 후보 이슈들을 가져오기"""
+        """GitHub API로 후보 이슈들을 가져오기"""
         try:
-            # 검색 쿼리 구성
-            search_terms = self._extract_search_terms(question)
-            query = " ".join(search_terms)
+            # 검색 쿼리 생성
+            search_queries = self._generate_search_queries(question)
             
-            # API 요청 헤더
+            all_issues = []
+            seen_issues = set()
+            
+            for query in search_queries[:3]:  # 최대 3개 쿼리만 사용
+                if len(all_issues) >= max_candidates:
+                    break
+                    
+                issues = self._search_github_api(query, max_candidates // len(search_queries) + 1)
+                
+                for issue in issues:
+                    issue_id = issue.get('number')
+                    if issue_id not in seen_issues:
+                        all_issues.append(issue)
+                        seen_issues.add(issue_id)
+            
+            logger.info(f"후보 이슈 {len(all_issues)}개 수집")
+            return all_issues
+            
+        except Exception as e:
+            logger.error(f"후보 이슈 검색 실패: {e}")
+            return []
+    
+    def _generate_search_queries(self, question: str) -> List[str]:
+        """질문에서 다양한 검색 쿼리 생성"""
+        try:
+            # 기본 키워드 추출
+            keywords = self._extract_keywords(question)
+            
+            queries = []
+            
+            # 1. 원본 질문
+            queries.append(question)
+            
+            # 2. 키워드만으로 검색
+            if keywords:
+                queries.append(" ".join(keywords))
+                
+                # 3. 개별 키워드들
+                for keyword in keywords[:3]:
+                    queries.append(keyword)
+            
+            # 4. 특별한 패턴 검색
+            if "module not found" in question.lower() or "module not foun" in question.lower():
+                queries.extend([
+                    "module not found",
+                    "module error",
+                    "import error",
+                    "no module named"
+                ])
+            
+            # 중복 제거하고 최대 5개 쿼리만 사용
+            unique_queries = []
+            for query in queries:
+                if query and query not in unique_queries:
+                    unique_queries.append(query)
+                if len(unique_queries) >= 5:
+                    break
+            
+            return unique_queries
+            
+        except Exception as e:
+            logger.error(f"검색 쿼리 생성 실패: {e}")
+            return [question]
+    
+    def _extract_keywords(self, question: str) -> List[str]:
+        """질문에서 핵심 키워드 추출"""
+        try:
+            # 소문자 변환 및 특수문자 제거
+            cleaned = re.sub(r'[^\w\s]', ' ', question.lower())
+            
+            # 단어 분리 및 불용어 제거
+            words = [word for word in cleaned.split() 
+                    if word not in self.stop_words and len(word) > 1]
+            
+            return words[:5]  # 상위 5개 키워드
+            
+        except Exception as e:
+            logger.error(f"키워드 추출 실패: {e}")
+            return [question]
+    
+    def _search_github_api(self, query: str, per_page: int = 10) -> List[Dict[str, Any]]:
+        """GitHub API로 이슈 검색"""
+        try:
             headers = {
                 'Authorization': f'token {self.github_token}',
                 'Accept': 'application/vnd.github.v3+json',
                 'User-Agent': 'AI-Agent-Chatbot'
             }
             
-            # API 파라미터
             params = {
                 'q': f"{query} repo:{self.owner}/{self.repo}",
                 'sort': 'updated',
                 'order': 'desc',
-                'per_page': max_candidates,
+                'per_page': per_page,
                 'state': 'all'
             }
             
-            # GitHub Search API 사용
             search_url = "https://api.github.com/search/issues"
             
-            logger.info(f"후보 이슈 검색 중: {query}")
             response = requests.get(search_url, headers=headers, params=params, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
                 issues = data.get('items', [])
                 
-                # 이슈 정보 정리
-                candidate_issues = []
+                issue_list = []
                 for issue in issues:
                     issue_info = {
                         'number': issue.get('number'),
@@ -336,75 +409,76 @@ class GitHubIssueHelper:
                         'updated_at': issue.get('updated_at'),
                         'labels': [label.get('name') for label in issue.get('labels', [])]
                     }
-                    candidate_issues.append(issue_info)
+                    issue_list.append(issue_info)
                 
-                logger.info(f"후보 이슈 {len(candidate_issues)}개 수집")
-                return candidate_issues
+                return issue_list
                 
             else:
-                logger.error(f"GitHub API 요청 실패: {response.status_code} - {response.text}")
+                logger.error(f"GitHub API 요청 실패: {response.status_code}")
                 return []
                 
         except Exception as e:
-            logger.error(f"후보 이슈 검색 실패: {e}")
+            logger.error(f"GitHub API 검색 실패: {e}")
             return []
     
-    def _calculate_hybrid_similarity(self, question: str, candidate_issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """하이브리드 스코어링 (BM25 + 의미적 유사도 + 키워드 매칭)"""
+    def _calculate_hybrid_scores(self, question: str, candidate_issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Hybrid Search (BM25 + Dense Embedding)"""
         try:
             if not candidate_issues:
                 return []
             
+            logger.info(f"Hybrid Search 계산 시작: {len(candidate_issues)}개 이슈")
+            
             # 질문 전처리
             question_tokens = self._preprocess_text(question)
             
-            # 각 이슈에 대해 여러 스코어 계산
+            # 모든 이슈 텍스트 수집 (BM25 계산용)
+            all_issue_texts = []
             for issue in candidate_issues:
-                issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:2000]}"
+                issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:1000]}"
+                all_issue_texts.append(issue_text)
+            
+            # 각 이슈에 대해 BM25 + Dense Embedding 스코어 계산
+            for i, issue in enumerate(candidate_issues):
+                issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:1000]}"
                 issue_tokens = self._preprocess_text(issue_text)
                 
                 # 1. BM25 스코어 계산
-                bm25_score = self._calculate_bm25_score(question_tokens, issue_tokens, candidate_issues)
+                bm25_score = self._calculate_bm25_score(question_tokens, issue_tokens, all_issue_texts)
                 
-                # 2. 의미적 유사도 계산
-                semantic_score = self._calculate_semantic_score(question, issue_text)
+                # 2. Dense Embedding 스코어 계산
+                dense_score = self._calculate_dense_score(question, issue_text)
                 
-                # 3. 키워드 매칭 스코어 계산
-                keyword_score = self._calculate_keyword_score(question_tokens, issue_tokens)
+                # 3. Hybrid 스코어 계산 (BM25 60% + Dense 40%)
+                hybrid_score = bm25_score * 0.6 + dense_score * 0.4
                 
-                # 4. 최종 스코어 계산 (가중 평균)
-                final_score = (
-                    bm25_score * 0.4 +      # BM25 가중치 40%
-                    semantic_score * 0.4 +  # 의미적 유사도 가중치 40%
-                    keyword_score * 0.2     # 키워드 매칭 가중치 20%
-                )
-                
-                # 각 스코어를 이슈에 저장
+                # 스코어 저장
                 issue['bm25_score'] = bm25_score
-                issue['semantic_score'] = semantic_score
-                issue['keyword_score'] = keyword_score
-                issue['final_score'] = final_score
-                issue['similarity_score'] = final_score  # 기존 호환성을 위해 유지
+                issue['dense_score'] = dense_score
+                issue['hybrid_score'] = hybrid_score
+                issue['similarity_score'] = hybrid_score  # 기존 호환성을 위해 유지
             
-            # 최종 스코어가 0.2 이상인 이슈만 반환
-            filtered_issues = [issue for issue in candidate_issues if issue['final_score'] >= 0.2]
+            # Hybrid 스코어 순으로 정렬
+            candidate_issues.sort(key=lambda x: x['hybrid_score'], reverse=True)
             
-            logger.info(f"하이브리드 스코어링 완료: {len(filtered_issues)}개 이슈가 임계값(0.2) 이상")
-            return filtered_issues
+            logger.info(f"Hybrid Search 완료: {len(candidate_issues)}개 이슈")
+            return candidate_issues
             
         except Exception as e:
-            logger.error(f"하이브리드 스코어링 실패: {e}")
-            # 실패시 기존 방식으로 폴백
-            return self._fallback_similarity_calculation(question, candidate_issues)
+            logger.error(f"Hybrid Search 실패: {e}")
+            return candidate_issues
     
     def _preprocess_text(self, text: str) -> List[str]:
-        """텍스트 전처리 (토큰화, 불용어 제거, 정규화)"""
+        """텍스트 전처리 (토큰화, 불용어 제거)"""
         try:
+            if not text:
+                return []
+            
             # 소문자 변환 및 특수문자 제거
-            text = re.sub(r'[^\w\s]', ' ', text.lower())
+            cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
             
             # 토큰화
-            tokens = text.split()
+            tokens = cleaned.split()
             
             # 불용어 제거 및 길이 필터링
             filtered_tokens = [
@@ -418,15 +492,11 @@ class GitHubIssueHelper:
             logger.error(f"텍스트 전처리 실패: {e}")
             return text.split()
     
-    def _calculate_bm25_score(self, query_tokens: List[str], doc_tokens: List[str], all_docs: List[Dict[str, Any]]) -> float:
+    def _calculate_bm25_score(self, query_tokens: List[str], doc_tokens: List[str], all_docs: List[str]) -> float:
         """BM25 스코어 계산"""
         try:
             if not query_tokens or not doc_tokens:
                 return 0.0
-            
-            # BM25 파라미터
-            k1 = 1.2
-            b = 0.75
             
             # 문서 길이
             doc_length = len(doc_tokens)
@@ -436,17 +506,15 @@ class GitHubIssueHelper:
             if total_docs == 0:
                 return 0.0
             
-            avg_doc_length = sum(len(self._preprocess_text(f"{doc.get('title', '')} {doc.get('body', '')[:2000]}")) 
-                               for doc in all_docs) / total_docs
+            avg_doc_length = sum(len(self._preprocess_text(doc)) for doc in all_docs) / total_docs
             
             # 문서 내 토큰 빈도 계산
             doc_token_counts = Counter(doc_tokens)
             
             # 전체 문서에서의 토큰 빈도 계산
-            all_doc_tokens = []
+            all_token_counts = Counter()
             for doc in all_docs:
-                all_doc_tokens.extend(self._preprocess_text(f"{doc.get('title', '')} {doc.get('body', '')[:2000]}"))
-            all_token_counts = Counter(all_doc_tokens)
+                all_token_counts.update(self._preprocess_text(doc))
             
             # BM25 스코어 계산
             score = 0.0
@@ -457,7 +525,7 @@ class GitHubIssueHelper:
                     idf = math.log((total_docs - df + 0.5) / (df + 0.5))
                     
                     # BM25 공식
-                    term_score = idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_length / avg_doc_length)))
+                    term_score = idf * (tf * (self.bm25_k1 + 1)) / (tf + self.bm25_k1 * (1 - self.bm25_b + self.bm25_b * (doc_length / avg_doc_length)))
                     score += term_score
             
             return score
@@ -466,110 +534,72 @@ class GitHubIssueHelper:
             logger.error(f"BM25 스코어 계산 실패: {e}")
             return 0.0
     
-    def _calculate_semantic_score(self, question: str, issue_text: str) -> float:
-        """의미적 유사도 계산 (임베딩 기반)"""
+    def _calculate_dense_score(self, question: str, issue_text: str) -> float:
+        """Dense Embedding 스코어 계산"""
         try:
             # 질문과 이슈 텍스트를 임베딩으로 변환
             question_embedding = self.embedding_model.embed_query(question)
             issue_embedding = self.embedding_model.embed_query(issue_text)
             
             # 코사인 유사도 계산
-            question_array = np.array(question_embedding).reshape(1, -1)
-            issue_array = np.array(issue_embedding).reshape(1, -1)
+            question_array = np.array(question_embedding)
+            issue_array = np.array(issue_embedding)
             
-            similarity = cosine_similarity(question_array, issue_array)[0][0]
+            # 정규화
+            question_norm = question_array / np.linalg.norm(question_array)
+            issue_norm = issue_array / np.linalg.norm(issue_array)
+            
+            # 코사인 유사도
+            similarity = np.dot(question_norm, issue_norm)
+            
             return float(similarity)
             
         except Exception as e:
-            logger.error(f"의미적 유사도 계산 실패: {e}")
+            logger.error(f"Dense Embedding 스코어 계산 실패: {e}")
             return 0.0
     
-    def _calculate_keyword_score(self, query_tokens: List[str], doc_tokens: List[str]) -> float:
-        """키워드 매칭 스코어 계산"""
+    def _cross_encoder_rerank(self, question: str, hybrid_scores: List[Dict[str, Any]], max_results: int) -> List[Dict[str, Any]]:
+        """Cross-Encoder Re-ranking"""
         try:
-            if not query_tokens or not doc_tokens:
-                return 0.0
+            if not hybrid_scores:
+                return []
             
-            # 공통 토큰 찾기
-            common_tokens = set(query_tokens) & set(doc_tokens)
+            logger.info(f"Cross-Encoder Re-ranking 시작: {len(hybrid_scores)}개 이슈")
             
-            if not common_tokens:
-                return 0.0
+            # 상위 이슈들만 Re-ranking (성능 최적화)
+            top_issues = hybrid_scores[:min(len(hybrid_scores), max_results * 2)]
             
-            # Jaccard 유사도 계산
-            union_tokens = set(query_tokens) | set(doc_tokens)
-            jaccard_score = len(common_tokens) / len(union_tokens)
+            # Cross-Encoder로 Re-ranking
+            reranked_issues = []
+            for issue in top_issues:
+                issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:500]}"
+                
+                # Cross-Encoder 점수 계산
+                cross_score = self.cross_encoder.predict([question, issue_text])
+                
+                # 최종 점수 (Hybrid 70% + Cross-Encoder 30%)
+                final_score = issue.get('hybrid_score', 0) * 0.7 + cross_score[0] * 0.3
+                
+                issue['cross_encoder_score'] = cross_score[0]
+                issue['final_score'] = final_score
+                issue['similarity_score'] = final_score  # 기존 호환성을 위해 유지
+                
+                reranked_issues.append(issue)
             
-            # 가중치 적용 (공통 토큰의 비율)
-            weighted_score = jaccard_score * (len(common_tokens) / len(query_tokens))
+            # 최종 점수 순으로 정렬
+            reranked_issues.sort(key=lambda x: x['final_score'], reverse=True)
             
-            return weighted_score
+            # 상위 결과만 반환
+            result = reranked_issues[:max_results]
+            
+            logger.info(f"Cross-Encoder Re-ranking 완료: {len(result)}개 이슈")
+            return result
             
         except Exception as e:
-            logger.error(f"키워드 매칭 스코어 계산 실패: {e}")
-            return 0.0
+            logger.error(f"Cross-Encoder Re-ranking 실패: {e}")
+            # 실패시 Hybrid Search 결과 반환
+            return hybrid_scores[:max_results]
     
-    def _fallback_similarity_calculation(self, question: str, candidate_issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """LLM 실패시 기존 방식으로 폴백"""
-        try:
-            for issue in candidate_issues:
-                issue['similarity_score'] = self._calculate_similarity(question, issue.get('title', ''))
-            
-            # 유사도가 0.1 이상인 이슈만 반환
-            filtered_issues = [issue for issue in candidate_issues if issue['similarity_score'] >= 0.1]
-            
-            logger.info(f"폴백 방식으로 유사도 계산: {len(filtered_issues)}개 이슈")
-            return filtered_issues
-            
-        except Exception as e:
-            logger.error(f"폴백 유사도 계산 실패: {e}")
-            return candidate_issues
-    
-    def _extract_search_terms(self, question: str) -> List[str]:
-        """질문에서 검색 키워드 추출"""
-        try:
-            # 특수문자 제거 및 소문자 변환
-            cleaned = re.sub(r'[^\w\s]', ' ', question.lower())
-            
-            # 불용어 제거 (간단한 버전)
-            stop_words = {'이', '가', '을', '를', '에', '에서', '로', '으로', '의', '와', '과', '는', '은', '도', '만', '부터', '까지', '에게', '한테', '께', '처럼', '같이', '보다', '마다', '조차', '마저', '뿐', '만', '뿐만', '아니라', '또한', '그리고', '하지만', '그런데', '그러나', '따라서', '그래서', '왜냐하면', '때문에', '위해', '위해서', '통해', '통해서', '대해', '대해서', '관해', '관해서', '대한', '관한', '위한', '통한', '통해', '통해서', '대해', '대해서', '관해', '관해서', '대한', '관한', '위한', '통한', '어떻게', '무엇', '언제', '어디서', '왜', '누가', '어느', '몇', '얼마나', '어느', '몇', '얼마나', '어느', '몇', '얼마나'}
-            
-            # 단어 분리 및 불용어 제거
-            words = [word for word in cleaned.split() if word not in stop_words and len(word) > 1]
-            
-            # 상위 5개 키워드 반환
-            return words[:5]
-            
-        except Exception as e:
-            logger.error(f"검색 키워드 추출 실패: {e}")
-            return [question]
-    
-    def _calculate_similarity(self, question: str, title: str) -> float:
-        """질문과 이슈 제목 간의 유사도 계산 (간단한 버전)"""
-        try:
-            if not title:
-                return 0.0
-            
-            # 소문자 변환 및 특수문자 제거
-            q_clean = re.sub(r'[^\w\s]', ' ', question.lower())
-            t_clean = re.sub(r'[^\w\s]', ' ', title.lower())
-            
-            # 단어 분리
-            q_words = set(q_clean.split())
-            t_words = set(t_clean.split())
-            
-            if not q_words or not t_words:
-                return 0.0
-            
-            # Jaccard 유사도 계산
-            intersection = len(q_words.intersection(t_words))
-            union = len(q_words.union(t_words))
-            
-            return intersection / union if union > 0 else 0.0
-            
-        except Exception as e:
-            logger.error(f"유사도 계산 실패: {e}")
-            return 0.0
     
     def get_issue_answer(self, issue: Dict[str, Any]) -> Optional[str]:
         """

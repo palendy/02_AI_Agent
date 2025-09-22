@@ -253,16 +253,16 @@ def render_issue_search_results(similar_issues):
                     st.markdown(f"**상태:** {issue.get('state', 'unknown')}")
                     st.markdown(f"**최종 스코어:** {issue.get('final_score', issue.get('similarity_score', 0)):.3f}")
                     
-                    # 하이브리드 스코어 상세 정보 표시
-                    if 'bm25_score' in issue and 'semantic_score' in issue and 'keyword_score' in issue:
+                    # Hybrid Search + Cross-Encoder 스코어 상세 정보 표시
+                    if 'bm25_score' in issue and 'dense_score' in issue and 'cross_encoder_score' in issue:
                         with st.expander("📊 상세 스코어", expanded=False):
-                            col_bm25, col_semantic, col_keyword = st.columns(3)
+                            col_bm25, col_dense, col_cross = st.columns(3)
                             with col_bm25:
                                 st.metric("BM25", f"{issue.get('bm25_score', 0):.3f}")
-                            with col_semantic:
-                                st.metric("의미적 유사도", f"{issue.get('semantic_score', 0):.3f}")
-                            with col_keyword:
-                                st.metric("키워드 매칭", f"{issue.get('keyword_score', 0):.3f}")
+                            with col_dense:
+                                st.metric("Dense Embedding", f"{issue.get('dense_score', 0):.3f}")
+                            with col_cross:
+                                st.metric("Cross-Encoder", f"{issue.get('cross_encoder_score', 0):.3f}")
                     
                     if issue.get('labels'):
                         st.markdown(f"**라벨:** {', '.join(issue.get('labels', []))}")
@@ -286,16 +286,16 @@ def render_issue_search_results(similar_issues):
                     st.markdown(f"**상태:** {issue.get('state', 'unknown')}")
                     st.markdown(f"**최종 스코어:** {issue.get('final_score', issue.get('similarity_score', 0)):.3f}")
                     
-                    # 하이브리드 스코어 상세 정보 표시
-                    if 'bm25_score' in issue and 'semantic_score' in issue and 'keyword_score' in issue:
+                    # Hybrid Search + Cross-Encoder 스코어 상세 정보 표시
+                    if 'bm25_score' in issue and 'dense_score' in issue and 'cross_encoder_score' in issue:
                         with st.expander("📊 상세 스코어", expanded=False):
-                            col_bm25, col_semantic, col_keyword = st.columns(3)
+                            col_bm25, col_dense, col_cross = st.columns(3)
                             with col_bm25:
                                 st.metric("BM25", f"{issue.get('bm25_score', 0):.3f}")
-                            with col_semantic:
-                                st.metric("의미적 유사도", f"{issue.get('semantic_score', 0):.3f}")
-                            with col_keyword:
-                                st.metric("키워드 매칭", f"{issue.get('keyword_score', 0):.3f}")
+                            with col_dense:
+                                st.metric("Dense Embedding", f"{issue.get('dense_score', 0):.3f}")
+                            with col_cross:
+                                st.metric("Cross-Encoder", f"{issue.get('cross_encoder_score', 0):.3f}")
                     
                     if issue.get('labels'):
                         st.markdown(f"**라벨:** {', '.join(issue.get('labels', []))}")

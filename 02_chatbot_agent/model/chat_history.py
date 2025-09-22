@@ -142,7 +142,7 @@ class ChatHistoryManager:
     
     def search_similar_questions(self, 
                                 question: str, 
-                                k: int = 3,
+                                k: int = 5,  # 기본 검색 결과 수 증가 (3 -> 5)
                                 session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         유사한 질문 검색
