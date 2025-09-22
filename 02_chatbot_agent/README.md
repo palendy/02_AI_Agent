@@ -177,26 +177,25 @@ graph TD
 
 ```mermaid
 graph TD
-    START([START]) --> rewrite[rewrite]
-    rewrite --> search[search]
-    search --> grade[grade]
+    START([START]) --> retrieve[retrieve]
+    retrieve --> grade[grade]
     grade -->|관련성 통과| generate[generate]
-    grade -->|관련성 부족| retry[retry]
-    retry -->|retry_count < 3| rewrite
-    retry -->|retry_count >= 3| history_search[history_search]
-    history_search -->|유사한 질문 발견| final_answer[final_answer]
-    history_search -->|유사한 질문 없음| issue_search[issue_search]
+    grade -->|관련성 부족| rewrite[rewrite]
+    grade -->|최대 재시도 도달| final_answer[final_answer]
+    grade -->|DB 검색 후 재시도| history_search[history_search]
+    grade -->|History 검색 후| issue_search[issue_search]
+    rewrite --> retrieve
+    history_search --> grade
     issue_search --> final_answer
-    generate --> final_answer
+    generate --> END([END])
     final_answer --> END([END])
     
     style START fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
     style END fill:#f44336,color:#fff,stroke:#c62828,stroke-width:3px
-    style rewrite fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style search fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    style retrieve fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     style grade fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     style generate fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    style retry fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style rewrite fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     style history_search fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     style issue_search fill:#e0f2f1,stroke:#00695c,stroke-width:2px
     style final_answer fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
