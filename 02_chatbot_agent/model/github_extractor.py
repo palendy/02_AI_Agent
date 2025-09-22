@@ -60,6 +60,26 @@ class GitHubDocumentExtractor:
             separators=["\n\n", "\n", " ", ""]
         )
     
+    def _normalize_github_url(self, url: str) -> str:
+        """
+        GitHub URL을 정규화 (tree 경로 제거)
+        
+        Args:
+            url: GitHub repository URL
+            
+        Returns:
+            str: 정규화된 URL
+        """
+        # tree 경로가 있는 경우 제거
+        if '/tree/' in url:
+            url = url.split('/tree/')[0]
+        
+        # .git이 없는 경우 추가
+        if not url.endswith('.git'):
+            url = f"{url}.git"
+        
+        return url
+    
     def _parse_github_url(self, url: str) -> Dict[str, str]:
         """
         GitHub URL을 파싱하여 owner, repo, branch 정보 추출
@@ -70,7 +90,9 @@ class GitHubDocumentExtractor:
         Returns:
             Dict: {'owner': str, 'repo': str, 'branch': str}
         """
-        parsed = urlparse(url)
+        # URL 정규화
+        normalized_url = self._normalize_github_url(url)
+        parsed = urlparse(normalized_url)
         
         if parsed.hostname not in ['github.com', 'www.github.com']:
             raise ValueError(f"지원하지 않는 GitHub URL입니다: {url}")
@@ -83,9 +105,14 @@ class GitHubDocumentExtractor:
         repo = path_parts[1].replace('.git', '')
         branch = 'main'  # 기본값
         
-        # URL에 branch 정보가 있는 경우
-        if len(path_parts) > 3 and path_parts[2] == 'tree':
-            branch = path_parts[3]
+        # 원본 URL에서 branch 정보 추출 (tree 경로가 있는 경우)
+        if '/tree/' in url:
+            try:
+                tree_parts = url.split('/tree/')
+                if len(tree_parts) > 1:
+                    branch = tree_parts[1].split('/')[0]
+            except:
+                pass  # branch 추출 실패 시 기본값 사용
         
         return {
             'owner': owner,
@@ -105,21 +132,21 @@ class GitHubDocumentExtractor:
             str: 클론된 repository 경로
         """
         try:
-            # GitHub URL에 .git 추가 (없는 경우)
-            if not url.endswith('.git'):
-                url = f"{url}.git"
+            # URL 정규화
+            normalized_url = self._normalize_github_url(url)
             
             # Private repository의 경우 토큰 사용
+            clone_url = normalized_url
             if self.github_token:
                 # HTTPS URL에 토큰 추가
-                if url.startswith('https://'):
-                    url = url.replace('https://', f'https://{self.github_token}@')
-                elif url.startswith('git@'):
+                if normalized_url.startswith('https://'):
+                    clone_url = normalized_url.replace('https://', f'https://{self.github_token}@')
+                elif normalized_url.startswith('git@'):
                     # SSH URL은 그대로 사용 (SSH 키 설정 필요)
                     pass
             
-            logger.info(f"Repository 클론 중: {url}")
-            repo = Repo.clone_from(url, target_dir)
+            logger.info(f"Repository 클론 중: {clone_url}")
+            repo = Repo.clone_from(clone_url, target_dir)
             
             # 특정 브랜치로 체크아웃 (기본 브랜치가 아닌 경우)
             repo_info = self._parse_github_url(url)

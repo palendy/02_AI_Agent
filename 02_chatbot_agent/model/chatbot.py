@@ -12,6 +12,7 @@ from model.vector_store import DocumentVectorStore
 from model.github_extractor import GitHubDocumentExtractor
 from model.langgraph_workflow import CorrectiveRAGWorkflow
 from model.chat_history import ChatHistoryManager
+from model.github_issue_helper import GitHubIssueHelper
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -36,10 +37,12 @@ class AIChatbot:
         self.persist_directory = persist_directory
         
         # 컴포넌트 초기화
-        self.vector_store = None
+        self.vector_stores = {}  # repository별 벡터 스토어 저장
+        self.current_vector_store = None  # 현재 선택된 벡터 스토어
         self.github_extractor = None
         self.workflow = None
         self.chat_history_manager = None
+        self.github_issue_helper = None
         
         # 대화 기록
         self.conversation_history = []
@@ -52,12 +55,8 @@ class AIChatbot:
         try:
             logger.info("AI Chatbot 컴포넌트 초기화 중...")
             
-            # 벡터 스토어 초기화
-            self.vector_store = DocumentVectorStore(
-                collection_name=self.collection_name,
-                persist_directory=self.persist_directory
-            )
-            logger.info("벡터 스토어 초기화 완료")
+            # 벡터 스토어는 repository별로 동적 생성
+            logger.info("벡터 스토어는 repository별로 동적 생성됩니다.")
             
             # GitHub Extractor 초기화
             extractor_config = self.config.get_github_extractor_config()
@@ -68,11 +67,12 @@ class AIChatbot:
             self.chat_history_manager = ChatHistoryManager()
             logger.info("채팅 히스토리 매니저 초기화 완료")
             
-            # LangGraph 워크플로우 초기화
-            self.workflow = CorrectiveRAGWorkflow(
-                self.vector_store, 
-                self.chat_history_manager
-            )
+            # GitHub Issue Helper 초기화
+            self.github_issue_helper = GitHubIssueHelper()
+            logger.info("GitHub Issue Helper 초기화 완료")
+            
+            # LangGraph 워크플로우는 repository 선택 후 초기화
+            self.workflow = None
             logger.info("LangGraph 워크플로우 초기화 완료")
             
             # 설정된 repository들 자동 로드
@@ -95,12 +95,6 @@ class AIChatbot:
             
             logger.info(f"설정된 Repository 로드 중: {len(repositories)}개")
             
-            # 벡터 스토어에 문서가 이미 있는지 확인
-            collection_info = self.vector_store.get_collection_info()
-            if collection_info.get('document_count', 0) > 0:
-                logger.info("벡터 스토어에 이미 문서가 있습니다. 추가 로딩을 건너뜁니다.")
-                return
-            
             # Repository들 로드
             for url in repositories:
                 try:
@@ -114,11 +108,85 @@ class AIChatbot:
                     logger.error(f"❌ Repository 로드 중 오류: {url} - {e}")
                     continue
             
+            # 첫 번째 repository를 기본 선택으로 설정
+            if self.vector_stores:
+                first_repo = list(self.vector_stores.keys())[0]
+                self.set_current_repository(first_repo)
+                logger.info(f"기본 repository 설정: {first_repo}")
+            
             logger.info("설정된 Repository 로드 완료")
             
         except Exception as e:
             logger.error(f"설정된 Repository 로드 실패: {e}")
             # 초기화 실패를 방지하기 위해 예외를 다시 발생시키지 않음
+    
+    def set_current_repository(self, repository_url: str) -> bool:
+        """
+        현재 사용할 repository 설정
+        
+        Args:
+            repository_url: 선택할 repository URL
+            
+        Returns:
+            bool: 설정 성공 여부
+        """
+        try:
+            if repository_url not in self.vector_stores:
+                logger.error(f"Repository가 로드되지 않았습니다: {repository_url}")
+                return False
+            
+            self.current_vector_store = self.vector_stores[repository_url]
+            
+            # 워크플로우 초기화 (현재 벡터 스토어 사용)
+            self.workflow = CorrectiveRAGWorkflow(
+                self.current_vector_store, 
+                self.chat_history_manager
+            )
+            
+            logger.info(f"현재 repository 설정: {repository_url}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Repository 설정 실패: {e}")
+            return False
+    
+    def get_available_repositories(self) -> List[Dict[str, Any]]:
+        """
+        사용 가능한 repository 목록 반환
+        
+        Returns:
+            List[Dict[str, Any]]: repository 정보 목록
+        """
+        repositories = []
+        for url, vector_store in self.vector_stores.items():
+            try:
+                info = vector_store.get_collection_info()
+                repositories.append({
+                    'url': url,
+                    'name': vector_store._get_repository_name(url),
+                    'document_count': info.get('document_count', 0),
+                    'collection_name': info.get('collection_name', 'Unknown')
+                })
+            except Exception as e:
+                logger.error(f"Repository 정보 조회 실패: {url}, {e}")
+                continue
+        
+        return repositories
+    
+    def get_current_repository(self) -> Optional[str]:
+        """
+        현재 선택된 repository URL 반환
+        
+        Returns:
+            Optional[str]: 현재 repository URL
+        """
+        if not self.current_vector_store:
+            return None
+        
+        for url, vector_store in self.vector_stores.items():
+            if vector_store == self.current_vector_store:
+                return url
+        return None
     
     def add_github_repository(self, repository_url: str) -> Dict[str, Any]:
         """
@@ -133,13 +201,19 @@ class AIChatbot:
         try:
             logger.info(f"GitHub repository 추가 중: {repository_url}")
             
+            # URL 정규화 (tree 경로 제거)
+            normalized_url = repository_url
+            if '/tree/' in repository_url:
+                normalized_url = repository_url.split('/tree/')[0]
+                logger.info(f"URL 정규화: {repository_url} -> {normalized_url}")
+            
             # Repository 정보 조회
-            repo_info = self.github_extractor.get_repository_info(repository_url)
+            repo_info = self.github_extractor.get_repository_info(normalized_url)
             logger.info(f"Repository 정보: {repo_info.get('full_name', 'Unknown')}")
             
             # 문서 추출
             documents = self.github_extractor.extract_documents(
-                repository_url,
+                normalized_url,
                 split_documents=True
             )
             
@@ -151,15 +225,25 @@ class AIChatbot:
                     "documents_count": 0
                 }
             
+            # Repository별 벡터 스토어 생성 또는 가져오기
+            if normalized_url not in self.vector_stores:
+                self.vector_stores[normalized_url] = DocumentVectorStore(
+                    collection_name=self.collection_name,
+                    persist_directory=self.persist_directory,
+                    repository_url=normalized_url
+                )
+                logger.info(f"새 벡터 스토어 생성: {normalized_url}")
+            
             # 벡터 스토어에 추가
-            doc_ids = self.vector_store.add_github_documents(repository_url, documents)
+            doc_ids = self.vector_stores[normalized_url].add_github_documents(normalized_url, documents)
             
             logger.info(f"Repository 추가 완료: {len(doc_ids)}개 문서")
             
             return {
                 "success": True,
                 "message": f"Repository가 성공적으로 추가되었습니다.",
-                "repository_url": repository_url,
+                "repository_url": normalized_url,
+                "original_url": repository_url,
                 "repository_name": repo_info.get('full_name', 'Unknown'),
                 "documents_count": len(doc_ids),
                 "repository_info": repo_info
@@ -264,6 +348,21 @@ class AIChatbot:
         try:
             logger.info(f"질문 처리 중: {question}")
             
+            # 현재 벡터 스토어가 설정되어 있는지 확인
+            if not self.current_vector_store or not self.workflow:
+                return {
+                    "success": False,
+                    "question": question,
+                    "answer": "Repository가 선택되지 않았습니다. 먼저 사용할 Repository를 선택해주세요.",
+                    "search_source": "error",
+                    "relevance_score": 0.0,
+                    "retry_count": 0,
+                    "documents_used": 0,
+                    "timestamp": datetime.now().isoformat(),
+                    "error_message": "No repository selected",
+                    "similar_questions": []
+                }
+            
             # 질문 처리
             result = self.workflow.process_question(question, session_id)
             
@@ -302,6 +401,20 @@ class AIChatbot:
             
         except Exception as e:
             logger.error(f"질문 처리 실패: {e}")
+            
+            # GitHub Issue 제안 생성
+            issue_suggestion = None
+            if self.github_issue_helper:
+                try:
+                    system_info = self.get_system_info()
+                    issue_suggestion = self.github_issue_helper.suggest_issue_creation(
+                        question=question,
+                        error_message=str(e),
+                        system_info=system_info
+                    )
+                except Exception as issue_error:
+                    logger.error(f"GitHub Issue 제안 생성 실패: {issue_error}")
+            
             return {
                 "success": False,
                 "question": question,
@@ -312,7 +425,8 @@ class AIChatbot:
                 "documents_used": 0,
                 "timestamp": datetime.now().isoformat(),
                 "error_message": str(e),
-                "similar_questions": []
+                "similar_questions": [],
+                "github_issue_suggestion": issue_suggestion
             }
     
     def get_conversation_history(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -412,11 +526,25 @@ class AIChatbot:
             Dict[str, Any]: 시스템 정보
         """
         try:
-            # 벡터 스토어 정보
-            vector_store_info = self.vector_store.get_collection_info()
+            # 현재 벡터 스토어 정보
+            if self.current_vector_store:
+                vector_store_info = self.current_vector_store.get_collection_info()
+            else:
+                vector_store_info = {
+                    'collection_name': 'No repository selected',
+                    'document_count': 0,
+                    'persist_directory': self.persist_directory
+                }
             
             # 워크플로우 정보
-            workflow_info = self.workflow.get_workflow_info()
+            if self.workflow:
+                workflow_info = self.workflow.get_workflow_info()
+            else:
+                workflow_info = {
+                    'model_name': 'Not initialized',
+                    'max_retries': 0,
+                    'relevance_threshold': 0.0
+                }
             
             # 설정 정보
             config_info = {
@@ -439,7 +567,7 @@ class AIChatbot:
                 "chat_history": chat_history_info,
                 "conversation_count": len(self.conversation_history),
                 "initialized": all([
-                    self.vector_store is not None,
+                    len(self.vector_stores) > 0,
                     self.github_extractor is not None,
                     self.workflow is not None,
                     self.chat_history_manager is not None
@@ -463,9 +591,18 @@ class AIChatbot:
         try:
             logger.info("시스템 초기화 중...")
             
-            # 벡터 스토어 초기화
-            if self.vector_store:
-                self.vector_store.reset_collection()
+            # 모든 벡터 스토어 초기화
+            for url, vector_store in self.vector_stores.items():
+                try:
+                    vector_store.reset_collection()
+                    logger.info(f"벡터 스토어 초기화 완료: {url}")
+                except Exception as e:
+                    logger.error(f"벡터 스토어 초기화 실패: {url}, {e}")
+            
+            # 벡터 스토어 딕셔너리 초기화
+            self.vector_stores = {}
+            self.current_vector_store = None
+            self.workflow = None
             
             # 대화 기록 초기화
             self.clear_conversation_history()

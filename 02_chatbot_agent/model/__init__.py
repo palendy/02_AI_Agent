@@ -8,11 +8,13 @@ from .vector_store import DocumentVectorStore
 from .rag_agent import CorrectiveRAGAgent
 from .langgraph_workflow import CorrectiveRAGWorkflow
 from .chatbot import AIChatbot
+from .github_issue_helper import GitHubIssueHelper
 
 __all__ = [
     "GitHubDocumentExtractor",
     "DocumentVectorStore", 
     "CorrectiveRAGAgent",
     "CorrectiveRAGWorkflow",
-    "AIChatbot"
+    "AIChatbot",
+    "GitHubIssueHelper"
 ]

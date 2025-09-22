@@ -130,6 +130,9 @@ def initialize_session_state():
     
     if 'available_sessions' not in st.session_state:
         st.session_state.available_sessions = []
+    
+    if 'selected_repository' not in st.session_state:
+        st.session_state.selected_repository = None
 
 
 def initialize_chatbot():
@@ -149,7 +152,7 @@ def initialize_chatbot():
 def render_header():
     """헤더 렌더링"""
     st.markdown('<h1 class="main-header">🤖 AI Agent Chatbot</h1>', unsafe_allow_html=True)
-    st.markdown("### GitHub 문서 기반 지능형 챗봇 - Corrective RAG + LangGraph")
+    st.markdown("#### GitHub 문서 기반 지능형 챗봇 - Corrective RAG + LangGraph")
     
     # 상태 표시
     col1, col2, col3, col4 = st.columns(4)
@@ -172,10 +175,102 @@ def render_header():
         st.metric("💬 대화 수", len(st.session_state.chat_history))
     
     with col4:
-        if st.session_state.repository_urls:
-            st.metric("📁 Repository", len(st.session_state.repository_urls))
+        if st.session_state.chatbot and st.session_state.chatbot.vector_stores:
+            st.metric("🎯 서비스", len(st.session_state.chatbot.vector_stores))
         else:
-            st.metric("📁 Repository", 0)
+            st.metric("🎯 서비스", 0)
+    
+    # Repository 선택
+    if st.session_state.system_initialized and st.session_state.chatbot:
+        render_repository_selector()
+
+
+def render_repository_selector():
+    """서비스 선택기 렌더링"""
+    st.markdown("---")
+    
+    # 서비스 선택 헤더
+    st.markdown("""
+    <div style="text-align: center; margin: 1rem 0;">
+        <h3 style="color: #667eea; margin-bottom: 0.5rem;">🎯 문의할 서비스 선택</h3>
+        <p style="color: #666; font-size: 0.9rem;">어떤 서비스에 대해 문의하시겠습니까?</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    try:
+        # 사용 가능한 repository 목록 조회
+        repositories = st.session_state.chatbot.get_available_repositories()
+        
+        if not repositories:
+            st.markdown("""
+            <div style="text-align: center; padding: 1rem; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; margin: 0.5rem 0;">
+                <h4 style="color: #856404; margin-bottom: 0.5rem;">⚠️ 사용 가능한 서비스가 없습니다</h4>
+                <p style="color: #856404; font-size: 0.9rem;">시스템을 먼저 초기화해주세요.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            return
+        
+        # 서비스 선택 드롭다운 (더 간단하고 작게)
+        st.markdown("#### 📋 사용 가능한 서비스")
+        
+        # 현재 선택된 repository 찾기
+        current_repo = st.session_state.chatbot.get_current_repository()
+        repo_options = [f"{repo['name']} ({repo['document_count']}개)" for repo in repositories]
+        repo_urls = [repo['url'] for repo in repositories]
+        
+        current_index = 0
+        if current_repo and current_repo in repo_urls:
+            current_index = repo_urls.index(current_repo)
+        
+        # 서비스 선택 드롭다운
+        selected_index = st.selectbox(
+            "서비스를 선택하세요:",
+            range(len(repo_options)),
+            index=current_index,
+            format_func=lambda x: repo_options[x],
+            help="문의할 서비스를 선택하세요.",
+            key="service_selector"
+        )
+        
+        # 서비스 변경 시 처리
+        selected_url = repo_urls[selected_index]
+        if selected_url != current_repo:
+            if st.session_state.chatbot.set_current_repository(selected_url):
+                st.session_state.selected_repository = selected_url
+                st.success(f"✅ 서비스 변경됨: {repositories[selected_index]['name']}")
+                st.rerun()
+            else:
+                st.error("❌ 서비스 변경에 실패했습니다.")
+        
+        # 현재 선택된 서비스 정보를 작은 카드로 표시
+        if current_repo:
+            current_repo_info = next((repo for repo in repositories if repo['url'] == current_repo), None)
+            if current_repo_info:
+                st.markdown(f"""
+                <div style="
+                    text-align: center; 
+                    padding: 0.5rem; 
+                    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                    border-radius: 6px; 
+                    margin: 0.3rem 0;
+                ">
+                    <h5 style="margin: 0; color: white; font-size: 0.9rem;">🎯 현재 선택: {current_repo_info['name']}</h5>
+                    <p style="margin: 0; color: white; opacity: 0.9; font-size: 0.8rem;">📚 {current_repo_info['document_count']}개 문서</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # 새로고침 버튼
+        st.markdown("---")
+        col1, col2, col3 = st.columns([2, 1, 2])
+        
+        with col2:
+            if st.button("🔄 새로고침", use_container_width=True, help="서비스 목록을 새로고침합니다."):
+                st.rerun()
+        
+    
+    except Exception as e:
+        st.error(f"❌ 서비스 선택기 오류: {str(e)}")
 
 
 def render_navigation():
@@ -190,7 +285,7 @@ def render_navigation():
             st.rerun()
     
     with col2:
-        if st.button("📁 Repository 관리", use_container_width=True):
+        if st.button("🎯 서비스 관리", use_container_width=True):
             st.session_state.current_page = "repository"
             st.rerun()
     

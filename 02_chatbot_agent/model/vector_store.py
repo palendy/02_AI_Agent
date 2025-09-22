@@ -27,17 +27,26 @@ class DocumentVectorStore:
     
     def __init__(self, 
                  collection_name: str = "github_documents",
-                 persist_directory: str = "./chroma_db"):
+                 persist_directory: str = "./chroma_db",
+                 repository_url: str = None):
         """
         DocumentVectorStore 초기화
         
         Args:
             collection_name: ChromaDB 컬렉션 이름
             persist_directory: 벡터 DB 저장 디렉토리
+            repository_url: GitHub repository URL (개별 컬렉션 생성용)
         """
         self.config = get_config()
-        self.collection_name = collection_name
         self.persist_directory = persist_directory
+        self.repository_url = repository_url
+        
+        # Repository URL이 있으면 repository별 컬렉션 이름 생성
+        if repository_url:
+            repo_name = self._get_repository_name(repository_url)
+            self.collection_name = f"{collection_name}_{repo_name}"
+        else:
+            self.collection_name = collection_name
         
         # 임베딩 모델 초기화
         self.embedding_model = OpenAIEmbeddings(
@@ -58,6 +67,28 @@ class DocumentVectorStore:
         
         # 벡터 스토어 초기화
         self.vector_store = self._init_vector_store()
+    
+    def _get_repository_name(self, repository_url: str) -> str:
+        """
+        Repository URL에서 repository 이름 추출
+        
+        Args:
+            repository_url: GitHub repository URL
+            
+        Returns:
+            str: repository 이름 (owner_repo 형태)
+        """
+        try:
+            # https://github.com/owner/repo 형태에서 owner와 repo 추출
+            parts = repository_url.replace("https://github.com/", "").split("/")
+            if len(parts) >= 2:
+                owner = parts[0]
+                repo = parts[1].replace(".git", "")
+                return f"{owner}_{repo}"
+            return "unknown_repository"
+        except Exception as e:
+            logger.error(f"Repository 이름 추출 실패: {e}")
+            return "unknown_repository"
     
     def _init_chroma_client(self):
         """ChromaDB 클라이언트 초기화"""

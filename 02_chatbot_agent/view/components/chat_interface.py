@@ -16,6 +16,11 @@ def render_chat_interface():
         st.warning("⚠️ 시스템을 먼저 초기화해주세요.")
         return
     
+    # 서비스 선택 확인
+    if not st.session_state.chatbot.get_current_repository():
+        st.warning("⚠️ 문의할 서비스를 먼저 선택해주세요.")
+        return
+    
     # 세션 선택
     render_session_selector()
     
@@ -113,6 +118,10 @@ def render_chat_message(entry, index):
             if entry.get('error_message'):
                 st.error(f"⚠️ 오류: {entry.get('error_message', '')}")
             
+            # GitHub Issue 제안이 있는 경우 표시
+            if entry.get('github_issue_suggestion'):
+                render_github_issue_suggestion(entry['github_issue_suggestion'])
+            
             # 유사한 질문이 있는 경우 표시
             if entry.get('similar_questions'):
                 st.write("**🔍 유사한 질문들:**")
@@ -169,7 +178,8 @@ def process_user_input(user_input):
                 'documents_used': result['documents_used'],
                 'timestamp': result['timestamp'],
                 'error_message': result.get('error_message', ''),
-                'similar_questions': result.get('similar_questions', [])
+                'similar_questions': result.get('similar_questions', []),
+                'github_issue_suggestion': result.get('github_issue_suggestion', None)
             }
             
             st.session_state.chat_history.append(chat_entry)
@@ -306,6 +316,48 @@ def show_chat_statistics():
     
     except Exception as e:
         st.error(f"❌ 통계 계산 실패: {str(e)}")
+
+
+def render_github_issue_suggestion(suggestion):
+    """GitHub Issue 제안 렌더링"""
+    if not suggestion or not suggestion.get('suggested'):
+        return
+    
+    st.markdown("---")
+    st.markdown("### 🐛 GitHub Issue 제안")
+    
+    # 제안 메시지
+    st.info(suggestion.get('message', '질문에 답변하지 못했습니다.'))
+    
+    # Issue 정보 표시
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.write(f"**Repository**: {suggestion.get('repository', 'Unknown')}")
+        st.write(f"**제목**: {suggestion.get('title', 'Unknown')}")
+        
+        # Issue 내용 미리보기
+        with st.expander("📝 Issue 내용 미리보기"):
+            st.text(suggestion.get('body', ''))
+    
+    with col2:
+        # GitHub Issue 생성 버튼
+        issue_url = suggestion.get('url', '')
+        if issue_url:
+            st.markdown(f"[🔗 GitHub Issue 생성하기]({issue_url})")
+        
+        # Issue 정보 복사 버튼
+        if st.button("📋 정보 복사", help="Issue 정보를 클립보드에 복사합니다."):
+            issue_info = f"""
+**제목**: {suggestion.get('title', '')}
+**Repository**: {suggestion.get('repository', '')}
+**URL**: {issue_url}
+
+**내용**:
+{suggestion.get('body', '')}
+            """
+            st.code(issue_info, language="text")
+            st.success("✅ Issue 정보가 표시되었습니다. 위 내용을 복사하여 사용하세요.")
 
 
 def render_quick_questions():
