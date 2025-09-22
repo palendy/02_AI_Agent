@@ -99,6 +99,12 @@ def render_chat_message(entry, index):
     with st.chat_message("assistant"):
         st.write(entry.get('answer', ''))
         
+        # 답변 품질 피드백 UI (답변이 있고 GitHub Issue 제안이 없는 경우만)
+        if (entry.get('answer') and 
+            not entry.get('github_issue_suggestion') and 
+            not entry.get('error_message')):
+            render_feedback_buttons(entry, index)
+        
         # 추가 정보 (접을 수 있는 섹션)
         with st.expander("🔍 상세 정보"):
             col1, col2, col3, col4 = st.columns(4)
@@ -121,6 +127,14 @@ def render_chat_message(entry, index):
                 quality_color = "🟢" if quality_score >= 0.7 else "🟡" if quality_score >= 0.4 else "🔴"
                 st.metric("답변 품질", f"{quality_color} {quality_score:.2f}")
             
+            # 사용자 피드백 표시
+            if 'user_feedback' in entry:
+                feedback = entry.get('user_feedback')
+                if feedback == 'satisfied':
+                    st.success("✅ 사용자가 이 답변에 만족했습니다")
+                elif feedback == 'dissatisfied':
+                    st.warning("❌ 사용자가 이 답변에 불만족했습니다")
+            
             if entry.get('error_message'):
                 st.error(f"⚠️ 오류: {entry.get('error_message', '')}")
             
@@ -133,6 +147,83 @@ def render_chat_message(entry, index):
     # GitHub Issue 제안이 있는 경우 별도의 채팅 메시지로 표시
     if entry.get('github_issue_suggestion'):
         render_github_issue_chat_message(entry['github_issue_suggestion'], index)
+
+
+def render_feedback_buttons(entry, index):
+    """답변 품질 피드백 버튼 렌더링"""
+    # 이미 피드백이 있는 경우 표시만
+    if 'user_feedback' in entry:
+        feedback = entry.get('user_feedback')
+        if feedback == 'satisfied':
+            st.success("✅ 이 답변에 만족합니다")
+        elif feedback == 'dissatisfied':
+            st.warning("❌ 이 답변에 불만족합니다")
+        return
+    
+    # 피드백 버튼들
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        if st.button("👍 만족", key=f"satisfied_{index}", help="이 답변이 도움이 되었습니다"):
+            handle_feedback(entry, index, 'satisfied')
+    
+    with col2:
+        if st.button("👎 불만족", key=f"dissatisfied_{index}", help="이 답변이 도움이 되지 않았습니다"):
+            handle_feedback(entry, index, 'dissatisfied')
+    
+    with col3:
+        st.caption("💡 만족스러운 답변은 향후 유사한 질문에 재사용됩니다")
+
+
+def handle_feedback(entry, index, feedback_type):
+    """피드백 처리"""
+    try:
+        # st.session_state.chat_history에서 해당 메시지 찾기 및 업데이트
+        if index < len(st.session_state.chat_history):
+            st.session_state.chat_history[index]['user_feedback'] = feedback_type
+            
+            # conversation_history에서도 업데이트
+            for msg in st.session_state.chatbot.conversation_history:
+                if (msg.get('question') == entry.get('question') and 
+                    msg.get('answer') == entry.get('answer') and
+                    msg.get('timestamp') == entry.get('timestamp')):
+                    msg['user_feedback'] = feedback_type
+                    break
+            
+            # 만족스러운 답변인 경우 채팅 히스토리에 저장
+            if feedback_type == 'satisfied':
+                save_to_chat_history(entry)
+                st.success("✅ 답변이 채팅 히스토리에 저장되었습니다. 향후 유사한 질문에 재사용됩니다.")
+            else:
+                st.warning("❌ 답변이 채팅 히스토리에 저장되지 않았습니다.")
+            
+            # 페이지 새로고침
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"❌ 피드백 처리 중 오류가 발생했습니다: {str(e)}")
+
+
+def save_to_chat_history(entry):
+    """만족스러운 답변을 채팅 히스토리에 저장"""
+    try:
+        if st.session_state.chatbot.chat_history_manager:
+            # 답변 품질 점수가 높은 경우에만 저장 (0.5 이상)
+            quality_score = entry.get('answer_quality_score', 0.0)
+            if quality_score >= 0.5:
+                st.session_state.chatbot.chat_history_manager.add_chat_message(
+                    question=entry.get('question', ''),
+                    answer=entry.get('answer', ''),
+                    session_id=entry.get('session_id', st.session_state.current_session_id),
+                    relevance_score=entry.get('relevance_score', 0.0),
+                    search_source=entry.get('search_source', 'db'),
+                    documents_used=entry.get('documents_used', 0)
+                )
+                st.info(f"💡 답변 품질 점수: {quality_score:.2f} - 채팅 히스토리에 저장되었습니다.")
+            else:
+                st.warning(f"⚠️ 답변 품질 점수가 낮습니다 ({quality_score:.2f}). 채팅 히스토리에 저장되지 않았습니다.")
+    except Exception as e:
+        st.error(f"❌ 채팅 히스토리 저장 실패: {str(e)}")
 
 
 def render_github_issue_suggestion(issue_suggestion):
@@ -326,7 +417,10 @@ def process_user_input(user_input):
                 'timestamp': result['timestamp'],
                 'error_message': result.get('error_message', ''),
                 'similar_questions': result.get('similar_questions', []),
-                'github_issue_suggestion': result.get('github_issue_suggestion', None)
+                'github_issue_suggestion': result.get('github_issue_suggestion', None),
+                'answer_quality_score': result.get('answer_quality_score', 0.0),
+                'user_feedback': None,  # 사용자 피드백 (초기값: None)
+                'session_id': st.session_state.current_session_id
             }
             
             st.session_state.chat_history.append(chat_entry)
