@@ -113,8 +113,15 @@ class Config:
     
     @property
     def chroma_max_size(self) -> int:
-        """ChromaDB 최대 저장 문서 수"""
-        return int(os.getenv("CHROMA_MAX_SIZE", "10000"))
+        """ChromaDB 최대 저장 문서 수 (문서 저장용 - 제한 없음)"""
+        return int(os.getenv("CHROMA_MAX_SIZE", "0"))  # 0이면 제한 없음
+    
+    @property
+    def chat_history_max_size(self) -> int:
+        """채팅 히스토리 최대 저장 크기 (bytes)"""
+        # 기본값 2GB
+        default_size = 2 * 1024 * 1024 * 1024  # 2GB
+        return int(os.getenv("CHAT_HISTORY_MAX_SIZE", str(default_size)))
     
     # 로깅 설정
     @property
@@ -187,7 +194,8 @@ Config 정보:
 - 청크 크기: {self.chunk_size}
 - 청크 오버랩: {self.chunk_overlap}
 - 데이터베이스: {self.database_url}
-- ChromaDB 최대 크기: {self.chroma_max_size}
+- ChromaDB 최대 크기: {self.chroma_max_size if self.chroma_max_size > 0 else '제한 없음'}
+- 채팅 히스토리 최대 크기: {self.chat_history_max_size // (1024*1024*1024)}GB
 - 로그 레벨: {self.log_level}
 - 서버: {self.host}:{self.port}
 - 디버그: {self.debug}

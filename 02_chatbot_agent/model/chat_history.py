@@ -88,7 +88,7 @@ class ChatHistoryManager:
                         search_source: str = "db",
                         documents_used: int = 0) -> str:
         """
-        채팅 메시지 추가
+        채팅 메시지 추가 (크기 제한 적용)
         
         Args:
             question: 사용자 질문
@@ -124,13 +124,8 @@ class ChatHistoryManager:
                 "message_id": message_id
             }
             
-            # ChromaDB에 추가
-            self.collection.add(
-                ids=[message_id],
-                embeddings=[embedding],
-                documents=[combined_text],
-                metadatas=[metadata]
-            )
+            # 크기 제한 확인 및 교체 로직 실행
+            self._check_and_manage_size(combined_text, metadata, embedding)
             
             logger.info(f"채팅 메시지 저장 완료: {message_id}")
             return message_id
@@ -295,6 +290,150 @@ class ChatHistoryManager:
             logger.error(f"세션 삭제 실패: {e}")
             return False
     
+    def _check_and_manage_size(self, combined_text: str, metadata: dict, embedding: list) -> None:
+        """
+        크기 제한 확인 및 교체 로직 실행
+        
+        Args:
+            combined_text: 저장할 텍스트
+            metadata: 메타데이터
+            embedding: 임베딩 벡터
+        """
+        try:
+            # 현재 컬렉션 크기 확인
+            current_size = self._get_collection_size_bytes()
+            new_message_size = len(combined_text.encode('utf-8'))
+            max_size = self.config.chat_history_max_size
+            
+            logger.info(f"현재 컬렉션 크기: {current_size / (1024*1024):.2f}MB, 새 메시지 크기: {new_message_size / 1024:.2f}KB, 최대 크기: {max_size / (1024*1024*1024):.2f}GB")
+            
+            # 크기 초과 시 교체 로직 실행
+            if current_size + new_message_size > max_size:
+                logger.info(f"크기 초과 예상 ({current_size + new_message_size} > {max_size}) - 교체 로직 실행")
+                self._replace_oldest_messages(combined_text, metadata, embedding)
+            else:
+                # 일반적인 추가
+                self.collection.add(
+                    ids=[metadata["message_id"]],
+                    embeddings=[embedding],
+                    documents=[combined_text],
+                    metadatas=[metadata]
+                )
+                
+        except Exception as e:
+            logger.error(f"크기 관리 실패: {e}")
+            # 실패 시에도 메시지는 저장
+            self.collection.add(
+                ids=[metadata["message_id"]],
+                embeddings=[embedding],
+                documents=[combined_text],
+                metadatas=[metadata]
+            )
+    
+    def _get_collection_size_bytes(self) -> int:
+        """
+        현재 컬렉션의 총 크기 (bytes) 계산
+        
+        Returns:
+            int: 총 크기 (bytes)
+        """
+        try:
+            # 모든 메시지 조회
+            results = self.collection.get()
+            
+            total_size = 0
+            if results['documents']:
+                for document in results['documents']:
+                    total_size += len(document.encode('utf-8'))
+            
+            return total_size
+            
+        except Exception as e:
+            logger.error(f"컬렉션 크기 계산 실패: {e}")
+            return 0
+    
+    def _replace_oldest_messages(self, new_text: str, new_metadata: dict, new_embedding: list) -> None:
+        """
+        가장 오래된 메시지들을 새 메시지로 교체
+        
+        Args:
+            new_text: 새 메시지 텍스트
+            new_metadata: 새 메시지 메타데이터
+            new_embedding: 새 메시지 임베딩
+        """
+        try:
+            # 모든 메시지 조회 (시간순 정렬)
+            results = self.collection.get()
+            
+            if not results['ids']:
+                # 기존 메시지가 없으면 새 메시지만 추가
+                self.collection.add(
+                    ids=[new_metadata["message_id"]],
+                    embeddings=[new_embedding],
+                    documents=[new_text],
+                    metadatas=[new_metadata]
+                )
+                return
+            
+            # 메시지들을 시간순으로 정렬
+            messages_with_timestamp = []
+            for i, message_id in enumerate(results['ids']):
+                metadata = results['metadatas'][i]
+                document = results['documents'][i]
+                embedding = results['embeddings'][i]
+                
+                messages_with_timestamp.append({
+                    'id': message_id,
+                    'metadata': metadata,
+                    'document': document,
+                    'embedding': embedding,
+                    'timestamp': metadata['timestamp']
+                })
+            
+            # 시간순 정렬 (오래된 것부터)
+            messages_with_timestamp.sort(key=lambda x: x['timestamp'])
+            
+            # 새 메시지 크기
+            new_message_size = len(new_text.encode('utf-8'))
+            
+            # 교체할 메시지들 선택 (새 메시지 크기만큼)
+            messages_to_remove = []
+            removed_size = 0
+            
+            for msg in messages_with_timestamp:
+                msg_size = len(msg['document'].encode('utf-8'))
+                messages_to_remove.append(msg['id'])
+                removed_size += msg_size
+                
+                # 충분한 공간이 확보되면 중단
+                if removed_size >= new_message_size:
+                    break
+            
+            # 오래된 메시지들 삭제
+            if messages_to_remove:
+                self.collection.delete(ids=messages_to_remove)
+                logger.info(f"오래된 메시지 삭제 완료: {len(messages_to_remove)}개")
+            
+            # 새 메시지 추가
+            self.collection.add(
+                ids=[new_metadata["message_id"]],
+                embeddings=[new_embedding],
+                documents=[new_text],
+                metadatas=[new_metadata]
+            )
+            
+            logger.info(f"새 메시지 추가 완료: {new_metadata['message_id']}")
+            
+        except Exception as e:
+            logger.error(f"메시지 교체 실패: {e}")
+            # 실패 시에도 새 메시지는 저장
+            self.collection.add(
+                ids=[new_metadata["message_id"]],
+                embeddings=[new_embedding],
+                documents=[new_text],
+                metadatas=[new_metadata]
+            )
+    
     def get_collection_stats(self) -> Dict[str, Any]:
         """
         컬렉션 통계 정보 조회
@@ -316,11 +455,18 @@ class ChatHistoryManager:
             if recent_results['metadatas']:
                 latest_timestamp = recent_results['metadatas'][0]["timestamp"]
             
+            # 컬렉션 크기
+            collection_size = self._get_collection_size_bytes()
+            max_size = self.config.chat_history_max_size
+            
             return {
                 "total_messages": total_count,
                 "total_sessions": session_count,
                 "latest_message": latest_timestamp,
-                "collection_name": self.collection_name
+                "collection_name": self.collection_name,
+                "collection_size_mb": round(collection_size / (1024*1024), 2),
+                "max_size_gb": round(max_size / (1024*1024*1024), 2),
+                "usage_percentage": round((collection_size / max_size) * 100, 2) if max_size > 0 else 0
             }
             
         except Exception as e:

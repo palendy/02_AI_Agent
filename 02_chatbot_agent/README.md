@@ -126,7 +126,8 @@ RELEVANCE_THRESHOLD=0.6
 GITHUB_REPOSITORIES=https://github.com/owner/repo1,https://github.com/owner/repo2
 
 # ChromaDB 설정
-CHROMA_MAX_SIZE=10000  # 최대 저장 문서 수 (기본값: 10000)
+CHROMA_MAX_SIZE=0  # 문서 저장용 최대 크기 (0=제한 없음)
+CHAT_HISTORY_MAX_SIZE=2147483648  # 채팅 히스토리 최대 크기 (2GB)
 ```
 
 ### 3. **실행**
@@ -233,7 +234,8 @@ CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Re-ranking
 
 ### 3. **ChromaDB 설정**
 ```python
-CHROMA_MAX_SIZE = 10000  # 최대 저장 문서 수
+CHROMA_MAX_SIZE = 0  # 문서 저장용 최대 크기 (0=제한 없음)
+CHAT_HISTORY_MAX_SIZE = 2147483648  # 채팅 히스토리 최대 크기 (2GB)
 ```
 
 ### 4. **GitHub 설정**

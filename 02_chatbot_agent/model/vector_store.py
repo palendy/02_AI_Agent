@@ -139,7 +139,7 @@ class DocumentVectorStore:
     
     def add_documents(self, documents: List[Document]) -> List[str]:
         """
-        문서를 벡터 스토어에 추가 (최대 크기 제한 적용)
+        문서를 벡터 스토어에 추가 (크기 제한 없음)
         
         Args:
             documents: 추가할 문서 목록
@@ -156,22 +156,11 @@ class DocumentVectorStore:
             split_documents = self.text_splitter.split_documents(documents)
             logger.info(f"문서 분할 완료: {len(split_documents)}개 청크")
             
-            # 현재 컬렉션 크기 확인
-            current_count = self._get_collection_count()
-            max_size = self.config.chroma_max_size
+            # 벡터 스토어에 추가 (크기 제한 없음)
+            doc_ids = self.vector_store.add_documents(split_documents)
+            logger.info(f"문서 추가 완료: {len(doc_ids)}개 청크")
             
-            logger.info(f"현재 컬렉션 크기: {current_count}, 최대 크기: {max_size}")
-            
-            # 최대 크기 초과 시 교체 로직 실행
-            if current_count + len(split_documents) > max_size:
-                logger.info(f"최대 크기 초과 예상 ({current_count + len(split_documents)} > {max_size}) - 교체 로직 실행")
-                self._replace_oldest_documents(split_documents)
-                return [f"replaced_{i}" for i in range(len(split_documents))]
-            else:
-                # 벡터 스토어에 추가
-                doc_ids = self.vector_store.add_documents(split_documents)
-                logger.info(f"문서 추가 완료: {len(doc_ids)}개 청크")
-                return doc_ids
+            return doc_ids
             
         except Exception as e:
             logger.error(f"문서 추가 실패: {e}")
