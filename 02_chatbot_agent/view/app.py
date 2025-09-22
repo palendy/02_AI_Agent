@@ -43,6 +43,14 @@ st.set_page_config(
 # CSS 스타일
 st.markdown("""
 <style>
+    /* 전체 페이지 스타일 */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
+    
+    /* 헤더 스타일 */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -54,69 +62,201 @@ st.markdown("""
         background-clip: text;
     }
     
+    .compact-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+        color: white;
+    }
+    
+    /* 서비스 선택 카드 */
+    .service-card {
+        background: white;
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        border: 1px solid #e0e0e0;
+        transition: all 0.3s ease;
+    }
+    
+    .service-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    }
+    
+    .service-selected {
+        border: 2px solid #667eea;
+        background: linear-gradient(135deg, #f8f9ff 0%, #e8f0ff 100%);
+    }
+    
+    /* 채팅 메시지 스타일 */
     .chat-message {
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 1.2rem;
+        border-radius: 15px;
         margin-bottom: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
     }
     
     .user-message {
-        background-color: #e3f2fd;
+        background: linear-gradient(135deg, #e3f2fd 0%, #f0f8ff 100%);
         border-left: 4px solid #2196f3;
+        margin-left: 2rem;
     }
     
     .bot-message {
-        background-color: #f3e5f5;
+        background: linear-gradient(135deg, #f3e5f5 0%, #faf5ff 100%);
         border-left: 4px solid #9c27b0;
+        margin-right: 2rem;
     }
     
-    .system-info {
-        background-color: #e8f5e8;
-        border: 1px solid #4caf50;
-        border-radius: 5px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    .error-message {
-        background-color: #ffebee;
-        border: 1px solid #f44336;
-        border-radius: 5px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    .success-message {
-        background-color: #e8f5e8;
-        border: 1px solid #4caf50;
-        border-radius: 5px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    .metric-card {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
+    /* 상태 표시 스타일 */
+    .status-card {
+        background: white;
+        border-radius: 12px;
         padding: 1rem;
         text-align: center;
-        margin: 0.5rem 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border: 1px solid #e0e0e0;
+        transition: all 0.3s ease;
     }
     
+    .status-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+    }
+    
+    /* 버튼 스타일 */
     .stButton > button {
         width: 100%;
-        border-radius: 20px;
+        border-radius: 25px;
         border: none;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        font-weight: bold;
+        font-weight: 600;
+        padding: 0.75rem 1.5rem;
         transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+    }
+    
+    .secondary-button {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
+        color: #495057 !important;
+        border: 1px solid #dee2e6 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+    }
+    
+    .secondary-button:hover {
+        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%) !important;
+        transform: translateY(-1px);
+    }
+    
+    /* 입력 필드 스타일 */
+    .stTextInput > div > div > input {
+        border-radius: 25px;
+        border: 2px solid #e0e0e0;
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* 메트릭 카드 스타일 */
+    .metric-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        transition: all 0.3s ease;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    
+    /* 네비게이션 스타일 */
+    .nav-button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 20px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    
+    .nav-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* 스크롤바 스타일 */
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+    }
+    
+    /* 애니메이션 */
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .fade-in-up {
+        animation: fadeInUp 0.6s ease-out;
+    }
+    
+    /* 반응형 디자인 */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
+        
+        .compact-header {
+            padding: 1rem;
+        }
+        
+        .service-card {
+            padding: 1rem;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -162,8 +302,67 @@ def initialize_chatbot():
         return False
 
 
+def render_compact_header():
+    """간소화된 헤더 렌더링 (채팅 페이지용)"""
+    # 메인 헤더 카드
+    st.markdown("""
+    <div class="compact-header fade-in-up">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <div>
+                <h1 style="margin: 0; color: white; font-size: 2rem; font-weight: 700;">🤖 AI Agent Chatbot</h1>
+                <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 1rem;">GitHub 문서 기반 지능형 챗봇</p>
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div style="text-align: center;">
+                    <div style="font-size: 0.9rem; color: rgba(255,255,255,0.8); margin-bottom: 0.25rem;">시스템 상태</div>
+                    <div style="font-weight: 600; color: white;">
+                        """ + ("✅ 준비됨" if st.session_state.system_initialized else "⚠️ 초기화 중") + """
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="window.parent.postMessage({type: 'streamlit:setComponentValue', key: 'nav_history'}, '*')" 
+                            style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); 
+                                   color: white; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; 
+                                   font-weight: 600; transition: all 0.3s ease;">
+                        📚 히스토리
+                    </button>
+                    <button onclick="window.parent.postMessage({type: 'streamlit:setComponentValue', key: 'nav_info'}, '*')" 
+                            style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); 
+                                   color: white; padding: 0.5rem 1rem; border-radius: 20px; cursor: pointer; 
+                                   font-weight: 600; transition: all 0.3s ease;">
+                        📊 정보
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 네비게이션 버튼들 (Streamlit 버튼으로 대체)
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    
+    with col1:
+        if st.button("📚 히스토리", use_container_width=True, key="nav_history_btn"):
+            st.session_state.current_page = "history"
+            st.rerun()
+    
+    with col2:
+        if st.button("📊 시스템 정보", use_container_width=True, key="nav_info_btn"):
+            st.session_state.current_page = "info"
+            st.rerun()
+    
+    with col3:
+        if st.button("🔄 새로고침", use_container_width=True, key="refresh_btn"):
+            st.rerun()
+    
+    with col4:
+        if st.button("⚙️ 설정", use_container_width=True, key="settings_btn"):
+            st.session_state.current_page = "settings"
+            st.rerun()
+
+
 def render_header():
-    """헤더 렌더링"""
+    """헤더 렌더링 (다른 페이지용)"""
     st.markdown('<h1 class="main-header">🤖 AI Agent Chatbot</h1>', unsafe_allow_html=True)
     st.markdown("#### GitHub 문서 기반 지능형 챗봇 - Corrective RAG + LangGraph")
     
@@ -199,91 +398,78 @@ def render_header():
 
 
 def render_repository_selector():
-    """서비스 선택기 렌더링"""
-    st.markdown("---")
-    
-    # 서비스 선택 헤더
-    st.markdown("""
-    <div style="text-align: center; margin: 1rem 0;">
-        <h3 style="color: #667eea; margin-bottom: 0.5rem;">🎯 문의할 서비스 선택</h3>
-        <p style="color: #666; font-size: 0.9rem;">어떤 서비스에 대해 문의하시겠습니까?</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
+    """서비스 선택기 렌더링 (컴팩트 버전)"""
     try:
         # 사용 가능한 repository 목록 조회
         repositories = st.session_state.chatbot.get_available_repositories()
         
         if not repositories:
             st.markdown("""
-            <div style="text-align: center; padding: 1rem; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; margin: 0.5rem 0;">
-                <h4 style="color: #856404; margin-bottom: 0.5rem;">⚠️ 사용 가능한 서비스가 없습니다</h4>
-                <p style="color: #856404; font-size: 0.9rem;">시스템을 먼저 초기화해주세요.</p>
+            <div style="text-align: center; padding: 0.5rem; background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
+                        border: 1px solid #ffc107; border-radius: 8px; margin: 0.5rem 0;">
+                <div style="font-size: 1.2rem; margin-bottom: 0.25rem;">⚠️</div>
+                <h4 style="color: #856404; margin: 0; font-size: 0.9rem;">사용 가능한 서비스가 없습니다</h4>
             </div>
             """, unsafe_allow_html=True)
             return
         
-        # 서비스 선택 드롭다운 (더 간단하고 작게)
-        st.markdown("#### 📋 사용 가능한 서비스")
-        
         # 현재 선택된 repository 찾기
         current_repo = st.session_state.chatbot.get_current_repository()
-        repo_options = [f"{repo['name']} ({repo['document_count']}개)" for repo in repositories]
-        repo_urls = [repo['url'] for repo in repositories]
         
-        current_index = 0
-        if current_repo and current_repo in repo_urls:
-            current_index = repo_urls.index(current_repo)
+        # 서비스 선택 버튼들을 한 줄로 표시
+        st.markdown("""
+        <div style="text-align: center; margin: 0.5rem 0;">
+            <h4 style="color: #667eea; margin-bottom: 0.5rem; font-size: 1rem;">🎯 서비스 선택</h4>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # 서비스 선택 드롭다운
-        selected_index = st.selectbox(
-            "서비스를 선택하세요:",
-            range(len(repo_options)),
-            index=current_index,
-            format_func=lambda x: repo_options[x],
-            help="문의할 서비스를 선택하세요.",
-            key="service_selector"
-        )
+        # 서비스 버튼들을 한 줄로 표시
+        cols = st.columns(len(repositories))
         
-        # 서비스 변경 시 처리
-        selected_url = repo_urls[selected_index]
-        if selected_url != current_repo:
-            if st.session_state.chatbot.set_current_repository(selected_url):
-                st.session_state.selected_repository = selected_url
-                st.success(f"✅ 서비스 변경됨: {repositories[selected_index]['name']}")
-                st.rerun()
-            else:
-                st.error("❌ 서비스 변경에 실패했습니다.")
+        for i, repo in enumerate(repositories):
+            with cols[i]:
+                is_selected = current_repo == repo['url']
+                
+                # 작은 버튼 스타일
+                button_text = f"{'🎯' if is_selected else '📚'} {repo['name']}"
+                button_help = f"{repo['name']} 서비스를 선택합니다. ({repo['document_count']}개 문서)"
+                
+                if st.button(button_text, key=f"service_btn_{i}", use_container_width=True, 
+                           help=button_help):
+                    if st.session_state.chatbot.set_current_repository(repo['url']):
+                        st.session_state.selected_repository = repo['url']
+                        st.success(f"✅ 서비스 변경됨: {repo['name']}")
+                        st.rerun()
+                    else:
+                        st.error("❌ 서비스 변경에 실패했습니다.")
         
-        # 현재 선택된 서비스 정보를 작은 카드로 표시
+        # 현재 선택된 서비스 정보를 간단하게 표시
         if current_repo:
             current_repo_info = next((repo for repo in repositories if repo['url'] == current_repo), None)
             if current_repo_info:
                 st.markdown(f"""
-                <div style="
-                    text-align: center; 
-                    padding: 0.5rem; 
-                    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                    color: white; 
-                    border-radius: 6px; 
-                    margin: 0.3rem 0;
-                ">
-                    <h5 style="margin: 0; color: white; font-size: 0.9rem;">🎯 현재 선택: {current_repo_info['name']}</h5>
-                    <p style="margin: 0; color: white; opacity: 0.9; font-size: 0.8rem;">📚 {current_repo_info['document_count']}개 문서</p>
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; 
+                            text-align: center; padding: 0.5rem; border-radius: 8px; margin: 0.5rem 0;
+                            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        <div style="font-size: 1.2rem;">🎯</div>
+                        <div>
+                            <h4 style="margin: 0; color: white; font-size: 0.9rem; font-weight: 600;">{current_repo_info['name']}</h4>
+                            <p style="margin: 0.1rem 0 0 0; color: rgba(255,255,255,0.8); font-size: 0.8rem;">📚 {current_repo_info['document_count']}개 문서</p>
+                        </div>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        # 새로고침 버튼
-        st.markdown("---")
-        col1, col2, col3 = st.columns([2, 1, 2])
-        
-        with col2:
-            if st.button("🔄 새로고침", use_container_width=True, help="서비스 목록을 새로고침합니다."):
-                st.rerun()
-        
     
     except Exception as e:
-        st.error(f"❌ 서비스 선택기 오류: {str(e)}")
+        st.markdown(f"""
+        <div style="text-align: center; padding: 0.5rem; background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); 
+                    border: 1px solid #f44336; border-radius: 8px; margin: 0.5rem 0;">
+            <div style="font-size: 1.2rem; margin-bottom: 0.25rem;">❌</div>
+            <h4 style="color: #d32f2f; margin: 0; font-size: 0.9rem;">서비스 선택기 오류</h4>
+            <p style="color: #d32f2f; font-size: 0.8rem; margin: 0.1rem 0 0 0;">{str(e)}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def render_navigation():
@@ -509,12 +695,6 @@ def main():
     # 세션 상태 초기화
     initialize_session_state()
     
-    # 헤더 렌더링
-    render_header()
-    
-    # 네비게이션 렌더링
-    render_navigation()
-    
     # 챗봇 자동 초기화
     if not st.session_state.system_initialized:
         with st.spinner("🤖 시스템을 초기화하는 중..."):
@@ -522,8 +702,20 @@ def main():
                 st.rerun()
             else:
                 st.error("❌ 시스템 초기화에 실패했습니다. 페이지를 새로고침해주세요.")
+                return
+    
+    # 채팅 페이지가 기본이므로 바로 채팅 UI 렌더링
+    if st.session_state.current_page == "chat":
+        # 간소화된 헤더
+        render_compact_header()
+        # 서비스 선택기
+        render_repository_selector()
+        # 채팅 인터페이스
+        render_chat_interface()
     else:
-        # 메인 콘텐츠 렌더링
+        # 다른 페이지는 기존 방식
+        render_header()
+        render_navigation()
         render_main_content()
 
 
