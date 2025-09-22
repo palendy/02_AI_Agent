@@ -275,14 +275,20 @@ class CorrectiveRAGWorkflow:
             logger.info(f"답변 품질 점수: {quality_score:.3f}")
             
             # GitHub Issue 제안 여부 결정
+            # 이슈 검색 결과가 있으면 GitHub Issue 제안하지 않음
+            has_similar_issues = state.get("similar_issues") and len(state.get("similar_issues", [])) > 0
+            
             should_suggest_issue = (
-                quality_score < 0.5 or  # 답변 품질이 낮은 경우
-                not state.get("search_results") or  # 검색 결과가 없는 경우
-                state.get("error_message") or  # 에러가 발생한 경우
-                "죄송합니다" in answer or "찾을 수 없" in answer  # 부정적인 답변인 경우
+                not has_similar_issues and (  # 유사한 이슈가 없는 경우에만
+                    quality_score < 0.5 or  # 답변 품질이 낮은 경우
+                    not state.get("search_results") or  # 검색 결과가 없는 경우
+                    state.get("error_message") or  # 에러가 발생한 경우
+                    "죄송합니다" in answer or "찾을 수 없" in answer  # 부정적인 답변인 경우
+                )
             )
             
             logger.info(f"GitHub Issue 제안 여부: {should_suggest_issue}")
+            logger.info(f"유사한 이슈 있음: {has_similar_issues}")
             logger.info(f"검색 결과 있음: {bool(state.get('search_results'))}")
             logger.info(f"에러 메시지: {state.get('error_message')}")
             logger.info(f"답변 내용: {answer[:100]}...")
