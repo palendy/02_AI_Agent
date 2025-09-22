@@ -15,7 +15,6 @@ from model.chat_history import ChatHistoryManager
 from model.github_issue_helper import GitHubIssueHelper
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

@@ -18,7 +18,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import get_config
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

@@ -5,7 +5,7 @@ Hybrid Search + Cross-Encoder Re-ranking을 사용한 GitHub Issue 검색
 
 import os
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 import requests
 from urllib.parse import quote
@@ -19,7 +19,6 @@ from langchain.embeddings import OpenAIEmbeddings
 from sentence_transformers import CrossEncoder
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

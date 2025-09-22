@@ -4,7 +4,7 @@ LangGraph를 사용한 Corrective RAG 워크플로우 구현
 """
 
 import logging
-from typing import Dict, Any, List, Optional, TypedDict, Annotated
+from typing import Dict, Any, List, Optional, TypedDict
 from dataclasses import dataclass
 
 from langgraph.graph import StateGraph, END
@@ -18,7 +18,6 @@ from model.rag_agent import CorrectiveRAGAgent
 from model.chat_history import ChatHistoryManager
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

@@ -16,7 +16,6 @@ from model.vector_store import DocumentVectorStore
 from model.chat_history import ChatHistoryManager
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

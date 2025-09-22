@@ -6,7 +6,7 @@ ChromaDB를 사용하여 질문-답변 쌍을 저장하고 유사한 질문을 �
 import logging
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 import chromadb
@@ -17,7 +17,6 @@ from langchain.schema import Document
 from config import get_config
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
