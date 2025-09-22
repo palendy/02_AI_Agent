@@ -139,10 +139,9 @@ def initialize_chatbot():
     """챗봇 초기화"""
     try:
         if st.session_state.chatbot is None:
-            with st.spinner("🤖 AI Chatbot을 초기화하는 중..."):
-                st.session_state.chatbot = AIChatbot()
-                st.session_state.system_initialized = True
-                st.success("✅ AI Chatbot 초기화 완료!")
+            st.session_state.chatbot = AIChatbot()
+            st.session_state.system_initialized = True
+            st.success("✅ AI Chatbot 초기화 완료!")
         return True
     except Exception as e:
         st.error(f"❌ 챗봇 초기화 실패: {str(e)}")
@@ -509,11 +508,13 @@ def main():
     # 네비게이션 렌더링
     render_navigation()
     
-    # 챗봇 초기화
+    # 챗봇 자동 초기화
     if not st.session_state.system_initialized:
-        if st.button("🚀 시스템 초기화", use_container_width=True):
-            initialize_chatbot()
-            st.rerun()
+        with st.spinner("🤖 시스템을 초기화하는 중..."):
+            if initialize_chatbot():
+                st.rerun()
+            else:
+                st.error("❌ 시스템 초기화에 실패했습니다. 페이지를 새로고침해주세요.")
     else:
         # 메인 콘텐츠 렌더링
         render_main_content()

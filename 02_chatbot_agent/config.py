@@ -67,7 +67,7 @@ class Config:
     @property
     def relevance_threshold(self) -> float:
         """관련성 임계값"""
-        return float(os.getenv("RELEVANCE_THRESHOLD", "0.3"))
+        return float(os.getenv("RELEVANCE_THRESHOLD", "0.6"))
     
     @property
     def max_search_results(self) -> int:

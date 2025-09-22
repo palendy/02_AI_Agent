@@ -99,6 +99,18 @@ class AIChatbot:
             for url in repositories:
                 try:
                     logger.info(f"Repository 처리 중: {url}")
+                    
+                    # URL 정규화
+                    normalized_url = url
+                    if '/tree/' in url:
+                        normalized_url = url.split('/tree/')[0]
+                        logger.info(f"URL 정규화: {url} -> {normalized_url}")
+                    
+                    # 이미 로드된 repository인지 확인
+                    if normalized_url in self.vector_stores:
+                        logger.info(f"✅ Repository 이미 로드됨: {normalized_url}")
+                        continue
+                    
                     result = self.add_github_repository(url)
                     if result["success"]:
                         logger.info(f"✅ Repository 로드 성공: {url} ({result['documents_count']}개 문서)")
@@ -211,6 +223,31 @@ class AIChatbot:
             repo_info = self.github_extractor.get_repository_info(normalized_url)
             logger.info(f"Repository 정보: {repo_info.get('full_name', 'Unknown')}")
             
+            # Repository별 벡터 스토어 생성 또는 가져오기
+            if normalized_url not in self.vector_stores:
+                self.vector_stores[normalized_url] = DocumentVectorStore(
+                    collection_name=self.collection_name,
+                    persist_directory=self.persist_directory,
+                    repository_url=normalized_url
+                )
+                logger.info(f"새 벡터 스토어 생성: {normalized_url}")
+            
+            # 기존 문서 수 확인
+            existing_docs = self.vector_stores[normalized_url].get_collection_info().get('document_count', 0)
+            
+            if existing_docs > 0:
+                logger.info(f"✅ Repository 이미 로드됨: {normalized_url} ({existing_docs}개 문서)")
+                return {
+                    "success": True,
+                    "message": f"Repository가 이미 로드되어 있습니다.",
+                    "repository_url": normalized_url,
+                    "original_url": repository_url,
+                    "repository_name": repo_info.get('full_name', 'Unknown'),
+                    "documents_count": existing_docs,
+                    "repository_info": repo_info,
+                    "cached": True
+                }
+            
             # 문서 추출
             documents = self.github_extractor.extract_documents(
                 normalized_url,
@@ -225,15 +262,6 @@ class AIChatbot:
                     "documents_count": 0
                 }
             
-            # Repository별 벡터 스토어 생성 또는 가져오기
-            if normalized_url not in self.vector_stores:
-                self.vector_stores[normalized_url] = DocumentVectorStore(
-                    collection_name=self.collection_name,
-                    persist_directory=self.persist_directory,
-                    repository_url=normalized_url
-                )
-                logger.info(f"새 벡터 스토어 생성: {normalized_url}")
-            
             # 벡터 스토어에 추가
             doc_ids = self.vector_stores[normalized_url].add_github_documents(normalized_url, documents)
             
@@ -246,7 +274,8 @@ class AIChatbot:
                 "original_url": repository_url,
                 "repository_name": repo_info.get('full_name', 'Unknown'),
                 "documents_count": len(doc_ids),
-                "repository_info": repo_info
+                "repository_info": repo_info,
+                "cached": False
             }
             
         except Exception as e:
