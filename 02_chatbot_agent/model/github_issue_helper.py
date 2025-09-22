@@ -541,10 +541,31 @@ class GitHubIssueHelper:
                 if term in doc_token_counts:
                     tf = doc_token_counts[term]
                     df = all_token_counts.get(term, 1)
-                    idf = math.log((total_docs - df + 0.5) / (df + 0.5))
                     
-                    # BM25 공식
-                    term_score = idf * (tf * (self.bm25_k1 + 1)) / (tf + self.bm25_k1 * (1 - self.bm25_b + self.bm25_b * (doc_length / avg_doc_length)))
+                    # 0으로 나누기 방지 및 log domain error 방지
+                    if df >= total_docs:
+                        continue  # 모든 문서에 있는 단어는 스킵
+                    
+                    # IDF 계산 (안전한 범위 보장)
+                    idf_numerator = total_docs - df + 0.5
+                    idf_denominator = df + 0.5
+                    
+                    if idf_numerator <= 0 or idf_denominator <= 0:
+                        continue
+                    
+                    idf = math.log(idf_numerator / idf_denominator)
+                    
+                    # BM25 공식 (0으로 나누기 방지)
+                    if avg_doc_length <= 0:
+                        continue
+                    
+                    doc_length_ratio = doc_length / avg_doc_length
+                    bm25_denominator = tf + self.bm25_k1 * (1 - self.bm25_b + self.bm25_b * doc_length_ratio)
+                    
+                    if bm25_denominator <= 0:
+                        continue
+                    
+                    term_score = idf * (tf * (self.bm25_k1 + 1)) / bm25_denominator
                     score += term_score
             
             return score
@@ -564,9 +585,15 @@ class GitHubIssueHelper:
             question_array = np.array(question_embedding)
             issue_array = np.array(issue_embedding)
             
-            # 정규화
-            question_norm = question_array / np.linalg.norm(question_array)
-            issue_norm = issue_array / np.linalg.norm(issue_array)
+            # 정규화 (0으로 나누기 방지)
+            question_norm_val = np.linalg.norm(question_array)
+            issue_norm_val = np.linalg.norm(issue_array)
+            
+            if question_norm_val == 0 or issue_norm_val == 0:
+                return 0.0
+            
+            question_norm = question_array / question_norm_val
+            issue_norm = issue_array / issue_norm_val
             
             # 코사인 유사도
             similarity = np.dot(question_norm, issue_norm)
@@ -599,14 +626,20 @@ class GitHubIssueHelper:
                 # Cross-Encoder 점수 계산
                 cross_score = self.cross_encoder.predict([question, issue_text])
                 
-                # 최종 점수 (Hybrid 70% + Cross-Encoder 30%)
-                final_score = issue.get('hybrid_score', 0) * 0.7 + cross_score[0] * 0.3
+                # Cross-Encoder 결과 처리 (스칼라 또는 배열)
+                if isinstance(cross_score, (list, np.ndarray)) and len(cross_score) > 0:
+                    cross_score_value = cross_score[0]
+                else:
+                    cross_score_value = float(cross_score)
                 
-                issue['cross_encoder_score'] = cross_score[0]
+                # 최종 점수 (Hybrid 70% + Cross-Encoder 30%)
+                final_score = issue.get('hybrid_score', 0) * 0.7 + cross_score_value * 0.3
+                
+                issue['cross_encoder_score'] = cross_score_value
                 issue['final_score'] = final_score
                 issue['similarity_score'] = final_score  # 기존 호환성을 위해 유지
                 
-                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: Cross={cross_score[0]:.3f}, Final={final_score:.3f}")
+                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: Cross={cross_score_value:.3f}, Final={final_score:.3f}")
                 reranked_issues.append(issue)
             
             # 최종 점수 순으로 정렬

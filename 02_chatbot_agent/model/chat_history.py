@@ -77,8 +77,25 @@ class ChatHistoryManager:
             return collection
             
         except Exception as e:
-            logger.error(f"컬렉션 초기화 실패: {e}")
-            raise
+            # Dimension mismatch 에러인 경우 컬렉션 재생성
+            if "embedding with dimension" in str(e):
+                logger.warning(f"임베딩 차원 불일치 감지: {e}")
+                logger.info("기존 컬렉션을 삭제하고 새로 생성합니다.")
+                try:
+                    self.client.delete_collection(name=self.collection_name)
+                except:
+                    pass  # 컬렉션이 없을 수도 있음
+                
+                # 새 컬렉션 생성
+                collection = self.client.create_collection(
+                    name=self.collection_name,
+                    metadata={"description": "채팅 히스토리 저장소"}
+                )
+                logger.info(f"새 컬렉션 '{self.collection_name}' 생성 완료")
+                return collection
+            else:
+                logger.error(f"컬렉션 초기화 실패: {e}")
+                raise
     
     def add_chat_message(self, 
                         question: str, 
