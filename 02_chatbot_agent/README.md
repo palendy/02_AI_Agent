@@ -173,79 +173,30 @@ graph TD
     style O fill:#ffebee
 ```
 
-### LangGraph 노드 상세 구조
+### LangGraph 노드 및 엣지 구조
 
 ```mermaid
-graph LR
-    subgraph "입력 처리"
-        A[rewrite] --> B[search]
-    end
-    
-    subgraph "검색 및 평가"
-        B --> C[grade]
-        C --> D[retry]
-    end
-    
-    subgraph "대체 검색"
-        D --> E[history_search]
-        E --> F[issue_search]
-    end
-    
-    subgraph "답변 생성"
-        C --> G[generate]
-        G --> H[final_answer]
-        F --> H
-        E --> H
-    end
-    
-    subgraph "피드백 처리"
-        H --> I[사용자 피드백]
-        I --> J[채팅 히스토리 저장]
-    end
+graph TD
+    A[rewrite] --> B[search]
+    B --> C[grade]
+    C -->|관련성 통과| D[generate]
+    C -->|관련성 부족| E[retry]
+    E -->|retry_count < 3| A
+    E -->|retry_count >= 3| F[history_search]
+    F -->|유사한 질문 발견| G[final_answer]
+    F -->|유사한 질문 없음| H[issue_search]
+    H --> I[final_answer]
+    D --> I
     
     style A fill:#e3f2fd
     style B fill:#e8f5e8
     style C fill:#fff3e0
-    style D fill:#fce4ec
-    style E fill:#f3e5f5
-    style F fill:#e0f2f1
-    style G fill:#e8f5e8
-    style H fill:#c8e6c9
-    style I fill:#fff9c4
-    style J fill:#ffecb3
-```
-
-### 검색 우선순위 플로우
-
-```mermaid
-flowchart TD
-    A[사용자 질문] --> B[1차: 벡터 스토어 검색]
-    B --> C{관련성 평가}
-    C -->|통과 0.6+| D[답변 생성]
-    C -->|실패| E[2차: 채팅 히스토리 검색]
-    E --> F{유사한 질문 발견?}
-    F -->|있음 0.5+| G[캐시된 답변 반환]
-    F -->|없음| H[3차: GitHub Issue 검색]
-    H --> I[Hybrid Search + Re-ranking]
-    I --> J{유사한 이슈 발견?}
-    J -->|있음| K[이슈 기반 답변]
-    J -->|없음| L[GitHub Issue 생성 제안]
-    
-    D --> M[사용자 피드백]
-    G --> M
-    K --> M
-    L --> M
-    
-    M --> N{만족 + 품질 0.5+?}
-    N -->|예| O[채팅 히스토리 저장]
-    N -->|아니오| P[저장하지 않음]
-    
-    style A fill:#e1f5fe
-    style D fill:#c8e6c9
+    style D fill:#e8f5e8
+    style E fill:#fce4ec
+    style F fill:#f3e5f5
     style G fill:#c8e6c9
-    style K fill:#c8e6c9
-    style L fill:#ffcdd2
-    style O fill:#fff3e0
+    style H fill:#e0f2f1
+    style I fill:#c8e6c9
 ```
 
 ## 🔧 주요 설정
