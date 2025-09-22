@@ -5,10 +5,8 @@ Streamlit Components for AI Agent Chatbot
 
 from .chat_interface import render_chat_interface
 from .sidebar import render_sidebar
-from .repository_manager import render_repository_manager
 
 __all__ = [
     "render_chat_interface",
-    "render_sidebar", 
-    "render_repository_manager"
+    "render_sidebar"
 ]
