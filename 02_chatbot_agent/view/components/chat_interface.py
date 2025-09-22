@@ -115,18 +115,165 @@ def render_chat_message(entry, index):
             with col4:
                 st.metric("사용된 문서", f"{entry.get('documents_used', 0)}개")
             
+            # 답변 품질 점수 표시
+            if 'answer_quality_score' in entry:
+                quality_score = entry.get('answer_quality_score', 0.0)
+                quality_color = "🟢" if quality_score >= 0.7 else "🟡" if quality_score >= 0.4 else "🔴"
+                st.metric("답변 품질", f"{quality_color} {quality_score:.2f}")
+            
             if entry.get('error_message'):
                 st.error(f"⚠️ 오류: {entry.get('error_message', '')}")
-            
-            # GitHub Issue 제안이 있는 경우 표시
-            if entry.get('github_issue_suggestion'):
-                render_github_issue_suggestion(entry['github_issue_suggestion'])
             
             # 유사한 질문이 있는 경우 표시
             if entry.get('similar_questions'):
                 st.write("**🔍 유사한 질문들:**")
                 for similar in entry.get('similar_questions', [])[:3]:
                     st.write(f"- {similar.get('question', '')} (유사도: {similar.get('similarity_score', 0):.3f})")
+    
+    # GitHub Issue 제안이 있는 경우 별도의 채팅 메시지로 표시
+    if entry.get('github_issue_suggestion'):
+        render_github_issue_chat_message(entry['github_issue_suggestion'], index)
+
+
+def render_github_issue_suggestion(issue_suggestion):
+    """GitHub Issue 제안 렌더링"""
+    if not issue_suggestion.get('suggested', False):
+        st.warning(f"⚠️ {issue_suggestion.get('message', 'Issue 제안을 생성할 수 없습니다.')}")
+        return
+    
+    st.markdown("---")
+    st.markdown("### 🐛 GitHub Issue 제안")
+    
+    # Issue 정보 표시
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown(f"**Repository:** `{issue_suggestion.get('repository', 'Unknown')}`")
+        st.markdown(f"**제목:** {issue_suggestion.get('title', 'N/A')}")
+    
+    with col2:
+        # Issue 생성 버튼
+        issue_url = issue_suggestion.get('url', '')
+        if issue_url:
+            st.markdown(f"[🔗 Issue 생성하기]({issue_url})")
+    
+    # Issue 내용 미리보기
+    with st.expander("📝 Issue 내용 미리보기"):
+        st.markdown(issue_suggestion.get('body', '내용이 없습니다.'))
+    
+    # 추가 정보
+    st.info(f"💡 {issue_suggestion.get('message', '')}")
+
+
+def render_github_issue_chat_message(issue_suggestion, message_index):
+    """GitHub Issue 제안을 채팅 메시지로 렌더링"""
+    if not issue_suggestion.get('suggested', False):
+        with st.chat_message("assistant"):
+            st.warning(f"⚠️ {issue_suggestion.get('message', 'Issue 제안을 생성할 수 없습니다.')}")
+        return
+    
+    with st.chat_message("assistant"):
+        st.markdown("### 🐛 GitHub Issue 제안")
+        st.markdown("답변을 찾지 못해 GitHub Issue를 생성하는 것을 제안드립니다.")
+        
+        # Issue 정보 표시
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown(f"**Repository:** `{issue_suggestion.get('repository', 'Unknown')}`")
+            st.markdown(f"**제목:** {issue_suggestion.get('title', 'N/A')}")
+        
+        with col2:
+            issue_url = issue_suggestion.get('url', '')
+            if issue_url:
+                st.markdown(f"[🔗 Issue 생성하기]({issue_url})")
+        
+        # Issue 내용 편집 가능한 폼
+        with st.form(key=f"github_issue_form_{message_index}"):
+            st.markdown("**Issue 내용을 확인하고 수정하세요:**")
+            
+            # 제목 편집
+            edited_title = st.text_input(
+                "제목:",
+                value=issue_suggestion.get('title', ''),
+                key=f"issue_title_{message_index}"
+            )
+            
+            # 본문 편집
+            edited_body = st.text_area(
+                "본문:",
+                value=issue_suggestion.get('body', ''),
+                height=300,
+                key=f"issue_body_{message_index}"
+            )
+            
+            # 라벨 선택
+            labels = st.multiselect(
+                "라벨:",
+                options=["bug", "question-answer-failure", "auto-generated", "enhancement", "documentation"],
+                default=["bug", "question-answer-failure", "auto-generated"],
+                key=f"issue_labels_{message_index}"
+            )
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.form_submit_button("✅ Issue 생성", type="primary"):
+                    create_github_issue(issue_suggestion, edited_title, edited_body, labels)
+            
+            with col2:
+                if st.form_submit_button("📝 미리보기"):
+                    preview_github_issue(edited_title, edited_body, labels)
+            
+            with col3:
+                if st.form_submit_button("❌ 취소"):
+                    st.rerun()
+
+
+def create_github_issue(issue_suggestion, title, body, labels):
+    """GitHub Issue 생성"""
+    try:
+        # GitHub Issue URL 생성
+        repository = issue_suggestion.get('repository', '')
+        if not repository:
+            st.error("Repository 정보가 없습니다.")
+            return
+        
+        # 라벨을 URL 인코딩
+        labels_str = ",".join(labels) if labels else ""
+        
+        # 제목과 본문을 URL 인코딩
+        import urllib.parse
+        encoded_title = urllib.parse.quote(title)
+        encoded_body = urllib.parse.quote(body)
+        encoded_labels = urllib.parse.quote(labels_str)
+        
+        # GitHub Issue URL 생성
+        issue_url = f"https://github.com/{repository}/issues/new?title={encoded_title}&body={encoded_body}&labels={encoded_labels}"
+        
+        # 성공 메시지와 함께 URL 표시
+        st.success("✅ GitHub Issue가 생성되었습니다!")
+        st.markdown(f"[🔗 생성된 Issue 보기]({issue_url})")
+        
+        # 브라우저에서 열기
+        st.markdown(f"""
+        <script>
+        window.open('{issue_url}', '_blank');
+        </script>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"❌ GitHub Issue 생성 중 오류가 발생했습니다: {str(e)}")
+
+
+def preview_github_issue(title, body, labels):
+    """GitHub Issue 미리보기"""
+    st.markdown("### 📝 Issue 미리보기")
+    st.markdown("---")
+    st.markdown(f"**제목:** {title}")
+    st.markdown(f"**라벨:** {', '.join(labels) if labels else '없음'}")
+    st.markdown("**본문:**")
+    st.markdown(body)
 
 
 def render_input_form():

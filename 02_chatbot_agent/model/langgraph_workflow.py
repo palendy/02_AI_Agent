@@ -36,6 +36,8 @@ class CorrectiveRAGState(TypedDict):
     error_message: str
     similar_questions: List[Dict[str, Any]]
     session_id: str
+    answer_quality_score: float
+    github_issue_suggestion: Optional[Dict[str, Any]]
 
 
 class CorrectiveRAGWorkflow:
@@ -254,14 +256,141 @@ class CorrectiveRAGWorkflow:
                 )
             else:
                 answer = "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
+                # 검색 결과가 없는 경우 에러 메시지 설정
+                if not state.get("error_message"):
+                    state["error_message"] = "검색 결과가 없습니다."
             
-            return {"final_answer": answer}
+            # 답변 품질 평가
+            quality_score = self._evaluate_answer_quality(state["user_question"], answer)
+            logger.info(f"답변 품질 점수: {quality_score:.3f}")
+            
+            # GitHub Issue 제안 여부 결정
+            should_suggest_issue = (
+                quality_score < 0.5 or  # 답변 품질이 낮은 경우
+                not state.get("search_results") or  # 검색 결과가 없는 경우
+                state.get("error_message") or  # 에러가 발생한 경우
+                "죄송합니다" in answer or "찾을 수 없" in answer  # 부정적인 답변인 경우
+            )
+            
+            logger.info(f"GitHub Issue 제안 여부: {should_suggest_issue}")
+            logger.info(f"검색 결과 있음: {bool(state.get('search_results'))}")
+            logger.info(f"에러 메시지: {state.get('error_message')}")
+            logger.info(f"답변 내용: {answer[:100]}...")
+            
+            # 상태 업데이트
+            state["final_answer"] = answer
+            state["answer_quality_score"] = quality_score
+            
+            # GitHub Issue 제안이 필요한 경우
+            if should_suggest_issue:
+                logger.info("GitHub Issue 제안 생성 시작")
+                try:
+                    from model.github_issue_helper import GitHubIssueHelper
+                    
+                    # 현재 선택된 repository 정보 가져오기
+                    current_repo = self.vector_store.repository_url if hasattr(self.vector_store, 'repository_url') else None
+                    logger.info(f"현재 repository: {current_repo}")
+                    
+                    # GitHub Issue Helper 초기화
+                    issue_helper = GitHubIssueHelper(current_repo)
+                    
+                    # 시스템 정보 수집
+                    system_info = {
+                        'model_name': self.config.default_model_name,
+                        'embedding_model': self.config.embedding_model,
+                        'relevance_threshold': self.config.relevance_threshold,
+                        'max_retries': self.config.max_retries,
+                        'document_count': len(state.get("search_results", [])),
+                        'conversation_count': 0,  # 필요시 추가
+                        'repository_url': current_repo
+                    }
+                    
+                    # Issue 제안 생성
+                    issue_suggestion = issue_helper.suggest_issue_creation(
+                        question=state["user_question"],
+                        error_message=state.get("error_message"),
+                        system_info=system_info
+                    )
+                    
+                    state["github_issue_suggestion"] = issue_suggestion
+                    
+                except Exception as e:
+                    logger.error(f"GitHub Issue 제안 생성 실패: {e}")
+                    state["github_issue_suggestion"] = {
+                        "suggested": False,
+                        "message": f"Issue 제안 생성 중 오류: {str(e)}"
+                    }
+            
+            return state
             
         except Exception as e:
             logger.error(f"최종 답변 생성 실패: {e}")
             return {
-                "final_answer": f"최종 답변 생성 중 오류가 발생했습니다: {str(e)}"
+                "final_answer": f"최종 답변 생성 중 오류가 발생했습니다: {str(e)}",
+                "answer_quality_score": 0.0,
+                "should_suggest_issue": True,
+                "github_issue_suggestion": {
+                    "suggested": True,
+                    "message": f"시스템 오류로 인해 GitHub Issue를 생성해주세요: {str(e)}"
+                }
             }
+    
+    def _evaluate_answer_quality(self, question: str, answer: str) -> float:
+        """
+        답변 품질 평가
+        
+        Args:
+            question: 사용자 질문
+            answer: 생성된 답변
+            
+        Returns:
+            float: 품질 점수 (0.0-1.0)
+        """
+        try:
+            # 기본 점수
+            score = 1.0
+            
+            # 부정적인 답변 패턴 체크
+            negative_patterns = [
+                "죄송합니다", "찾을 수 없", "답변할 수 없", "정보가 없",
+                "알 수 없", "확인할 수 없", "제공할 수 없"
+            ]
+            
+            for pattern in negative_patterns:
+                if pattern in answer:
+                    score -= 0.3
+                    break
+            
+            # 답변 길이 체크 (너무 짧으면 낮은 점수)
+            if len(answer.strip()) < 20:
+                score -= 0.2
+            
+            # 질문 키워드가 답변에 포함되어 있는지 체크
+            question_words = set(question.lower().split())
+            answer_words = set(answer.lower().split())
+            
+            # 공통 키워드 비율 계산
+            common_words = question_words.intersection(answer_words)
+            if len(question_words) > 0:
+                keyword_coverage = len(common_words) / len(question_words)
+                score += keyword_coverage * 0.2
+            
+            # 구체적인 정보가 포함되어 있는지 체크
+            specific_patterns = [
+                "방법", "단계", "설치", "사용법", "예시", "코드",
+                "설정", "구성", "옵션", "파라미터", "명령어"
+            ]
+            
+            has_specific_info = any(pattern in answer for pattern in specific_patterns)
+            if has_specific_info:
+                score += 0.1
+            
+            # 점수 범위 제한 (0.0-1.0)
+            return max(0.0, min(1.0, score))
+            
+        except Exception as e:
+            logger.error(f"답변 품질 평가 실패: {e}")
+            return 0.5  # 기본값
     
     def _error_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """에러 처리 노드"""
@@ -271,41 +400,47 @@ class CorrectiveRAGWorkflow:
     def _should_retry(self, state: CorrectiveRAGState) -> str:
         """재시도 여부 결정"""
         try:
-            # 에러가 있는 경우
-            if state.get("error_message"):
-                return "error"
+            logger.info(f"_should_retry 호출됨 - 상태: {state}")
             
             # 최대 재시도 횟수 도달
             retry_count = state.get("retry_count", 0)
             max_retries = state.get("max_retries", self.config.max_retries)
             
             if retry_count >= max_retries:
-                logger.info(f"최대 재시도 횟수 도달 ({max_retries}회)")
+                logger.info(f"최대 재시도 횟수 도달 ({max_retries}회) - final_answer로 이동")
                 return "final_answer"
             
             # 관련성 평가 결과 확인
-            if not state.get("docs_are_relevant", False):
-                relevance_score = state.get("relevance_score", 0.0)
+            docs_are_relevant = state.get("docs_are_relevant", False)
+            relevance_score = state.get("relevance_score", 0.0)
+            search_source = state.get("search_source", "unknown")
+            
+            logger.info(f"관련성 평가 결과: docs_are_relevant={docs_are_relevant}, relevance_score={relevance_score:.3f}, search_source={search_source}")
+            
+            if not docs_are_relevant:
                 threshold = self.config.relevance_threshold
                 
                 if relevance_score < threshold:
                     logger.info(f"관련성 부족 ({relevance_score:.3f} < {threshold}) - 재시도")
                     
                     # 검색 소스 전환: db -> history -> final
-                    if state.get("search_source") == "db" and retry_count >= 1:
+                    if search_source == "db" and retry_count >= 1:
+                        logger.info("DB 검색 후 재시도 - history_search로 이동")
                         return "history_search"
-                    elif state.get("search_source") == "history" and retry_count >= 2:
+                    elif search_source == "history":
+                        logger.info("History 검색 후 - final_answer로 이동")
                         return "final_answer"
                     else:
+                        logger.info("쿼리 재작성으로 이동")
                         return "rewrite"
             
             # 관련성 통과
-            logger.info(f"관련성 통과 ({state.get('relevance_score', 0):.3f})")
+            logger.info(f"관련성 통과 ({relevance_score:.3f}) - generate로 이동")
             return "generate"
             
         except Exception as e:
             logger.error(f"재시도 결정 실패: {e}")
-            return "error"
+            return "final_answer"  # 에러가 발생해도 final_answer로 이동
     
     def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
@@ -340,6 +475,12 @@ class CorrectiveRAGWorkflow:
             # 워크플로우 실행
             result = self.workflow.invoke(initial_state)
             
+            # 디버깅: GitHub Issue 제안 확인
+            if result.get("github_issue_suggestion"):
+                logger.info(f"워크플로우 결과에 GitHub Issue 제안 있음: {result.get('github_issue_suggestion', {}).get('suggested', False)}")
+            else:
+                logger.info("워크플로우 결과에 GitHub Issue 제안 없음")
+            
             # 채팅 히스토리에 질문-답변 저장
             if self.chat_history_manager:
                 self.chat_history_manager.add_chat_message(
@@ -361,7 +502,9 @@ class CorrectiveRAGWorkflow:
                 "retry_count": result.get("retry_count", 0),
                 "documents_used": len(result.get("search_results", [])),
                 "error_message": result.get("error_message", ""),
-                "similar_questions": result.get("similar_questions", [])
+                "similar_questions": result.get("similar_questions", []),
+                "answer_quality_score": result.get("answer_quality_score", 0.0),
+                "github_issue_suggestion": result.get("github_issue_suggestion")
             }
             
         except Exception as e:

@@ -404,7 +404,9 @@ class AIChatbot:
                 "relevance_score": result["relevance_score"],
                 "retry_count": result["retry_count"],
                 "documents_used": result["documents_used"],
-                "session_id": session_id
+                "session_id": session_id,
+                "answer_quality_score": result.get("answer_quality_score", 0.0),
+                "github_issue_suggestion": result.get("github_issue_suggestion")
             }
             
             self.conversation_history.append(conversation_entry)
@@ -425,7 +427,9 @@ class AIChatbot:
                 "documents_used": result["documents_used"],
                 "timestamp": conversation_entry["timestamp"],
                 "error_message": result.get("error_message", ""),
-                "similar_questions": result.get("similar_questions", [])
+                "similar_questions": result.get("similar_questions", []),
+                "answer_quality_score": result.get("answer_quality_score", 0.0),
+                "github_issue_suggestion": result.get("github_issue_suggestion")
             }
             
         except Exception as e:
@@ -486,10 +490,19 @@ class AIChatbot:
         Returns:
             List[Dict[str, Any]]: 채팅 히스토리
         """
-        if not self.chat_history_manager:
-            return []
+        # conversation_history에서 해당 세션의 메시지만 필터링
+        session_messages = [
+            msg for msg in self.conversation_history 
+            if msg.get('session_id') == session_id
+        ]
         
-        return self.chat_history_manager.get_chat_history(session_id, limit)
+        # 디버깅: GitHub Issue 제안이 있는 메시지 확인
+        for i, msg in enumerate(session_messages):
+            if msg.get('github_issue_suggestion'):
+                logger.info(f"메시지 {i}에 GitHub Issue 제안 있음: {msg.get('github_issue_suggestion', {}).get('suggested', False)}")
+        
+        # 최신 순으로 정렬하고 limit만큼 반환
+        return session_messages[-limit:] if session_messages else []
     
     def get_similar_questions(self, question: str, session_id: str = "default", k: int = 3) -> List[Dict[str, Any]]:
         """
