@@ -143,6 +143,10 @@ def render_chat_message(entry, index):
                 st.write("**🔍 유사한 질문들:**")
                 for similar in entry.get('similar_questions', [])[:3]:
                     st.write(f"- {similar.get('question', '')} (유사도: {similar.get('similarity_score', 0):.3f})")
+            
+            # 이슈 검색 결과가 있는 경우 표시
+            if entry.get('issue_search_performed') and entry.get('similar_issues'):
+                render_issue_search_results(entry.get('similar_issues', []))
     
     # GitHub Issue 제안이 있는 경우 별도의 채팅 메시지로 표시
     if entry.get('github_issue_suggestion'):
@@ -224,6 +228,67 @@ def save_to_chat_history(entry):
                 st.warning(f"⚠️ 답변 품질 점수가 낮습니다 ({quality_score:.2f}). 채팅 히스토리에 저장되지 않았습니다.")
     except Exception as e:
         st.error(f"❌ 채팅 히스토리 저장 실패: {str(e)}")
+
+
+def render_issue_search_results(similar_issues):
+    """이슈 검색 결과 렌더링"""
+    if not similar_issues:
+        return
+    
+    st.markdown("---")
+    st.markdown("### 🔍 GitHub Issue 검색 결과")
+    
+    # 이슈 상태별로 분류
+    closed_issues = [issue for issue in similar_issues if issue.get('state') == 'closed']
+    open_issues = [issue for issue in similar_issues if issue.get('state') == 'open']
+    
+    # Closed 이슈 표시
+    if closed_issues:
+        st.markdown("#### ✅ 해결된 이슈들")
+        for issue in closed_issues[:3]:  # 최대 3개
+            with st.expander(f"#{issue.get('number')} - {issue.get('title')}", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"**상태:** {issue.get('state', 'unknown')}")
+                    st.markdown(f"**유사도:** {issue.get('similarity_score', 0):.3f}")
+                    if issue.get('labels'):
+                        st.markdown(f"**라벨:** {', '.join(issue.get('labels', []))}")
+                
+                with col2:
+                    st.markdown(f"[🔗 이슈 보기]({issue.get('url', '#')})")
+                
+                # 답변이 있는 경우 표시
+                if issue.get('answer'):
+                    st.markdown("**해결 방법:**")
+                    st.markdown(issue.get('answer', ''))
+    
+    # Open 이슈 표시
+    if open_issues:
+        st.markdown("#### 🔄 진행 중인 이슈들")
+        for issue in open_issues[:3]:  # 최대 3개
+            with st.expander(f"#{issue.get('number')} - {issue.get('title')}", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"**상태:** {issue.get('state', 'unknown')}")
+                    st.markdown(f"**유사도:** {issue.get('similarity_score', 0):.3f}")
+                    if issue.get('labels'):
+                        st.markdown(f"**라벨:** {', '.join(issue.get('labels', []))}")
+                
+                with col2:
+                    st.markdown(f"[🔗 이슈 보기]({issue.get('url', '#')})")
+                
+                # 이슈 본문 일부 표시
+                if issue.get('body'):
+                    st.markdown("**내용:**")
+                    st.markdown(issue.get('body', '')[:200] + "..." if len(issue.get('body', '')) > 200 else issue.get('body', ''))
+    
+    # 전체 이슈 목록 링크
+    if similar_issues:
+        st.markdown("---")
+        st.markdown(f"**전체 {len(similar_issues)}개의 유사한 이슈가 발견되었습니다.**")
+        st.markdown("더 많은 이슈를 확인하려면 [GitHub Issues 페이지](https://github.com/palendy/02_AI_Agent/issues)를 방문해보세요.")
 
 
 def render_github_issue_suggestion(issue_suggestion):
@@ -420,7 +485,9 @@ def process_user_input(user_input):
                 'github_issue_suggestion': result.get('github_issue_suggestion', None),
                 'answer_quality_score': result.get('answer_quality_score', 0.0),
                 'user_feedback': None,  # 사용자 피드백 (초기값: None)
-                'session_id': st.session_state.current_session_id
+                'session_id': st.session_state.current_session_id,
+                'similar_issues': result.get('similar_issues', []),
+                'issue_search_performed': result.get('issue_search_performed', False)
             }
             
             st.session_state.chat_history.append(chat_entry)

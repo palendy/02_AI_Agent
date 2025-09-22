@@ -38,6 +38,8 @@ class CorrectiveRAGState(TypedDict):
     session_id: str
     answer_quality_score: float
     github_issue_suggestion: Optional[Dict[str, Any]]
+    similar_issues: List[Dict[str, Any]]
+    issue_search_performed: bool
 
 
 class CorrectiveRAGWorkflow:
@@ -78,6 +80,7 @@ class CorrectiveRAGWorkflow:
         workflow.add_node("generate", self._generate_node)
         workflow.add_node("rewrite", self._rewrite_node)
         workflow.add_node("history_search", self._history_search_node)
+        workflow.add_node("issue_search", self._issue_search_node)
         workflow.add_node("final_answer", self._final_answer_node)
         
         # 시작점 설정
@@ -94,6 +97,7 @@ class CorrectiveRAGWorkflow:
                 "generate": "generate",
                 "rewrite": "rewrite",
                 "history_search": "history_search",
+                "issue_search": "issue_search",
                 "final_answer": "final_answer"
             }
         )
@@ -103,6 +107,9 @@ class CorrectiveRAGWorkflow:
         
         # 채팅 히스토리 검색 후 평가
         workflow.add_edge("history_search", "grade")
+        
+        # 이슈 검색 후 최종 답변
+        workflow.add_edge("issue_search", "final_answer")
         
         # 답변 생성 후 종료
         workflow.add_edge("generate", END)
@@ -244,11 +251,19 @@ class CorrectiveRAGWorkflow:
         try:
             logger.info("최종 답변 생성 중")
             
+            # 이슈 검색 결과 확인
+            similar_issues = state.get("similar_issues", [])
+            issue_search_performed = state.get("issue_search_performed", False)
+            
+            # 답변 생성
             if state.get("search_results"):
                 answer = self.rag_agent.generate_answer(
                     state["user_question"],
                     state["search_results"]
                 )
+            elif issue_search_performed and similar_issues:
+                # 이슈 검색 결과가 있는 경우
+                answer = self._generate_answer_from_issues(state["user_question"], similar_issues)
             else:
                 answer = "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
                 # 검색 결과가 없는 경우 에러 메시지 설정
@@ -413,13 +428,13 @@ class CorrectiveRAGWorkflow:
                 if relevance_score < threshold:
                     logger.info(f"관련성 부족 ({relevance_score:.3f} < {threshold}) - 재시도")
                     
-                    # 검색 소스 전환: db -> history -> final
+                    # 검색 소스 전환: db -> history -> issue_search -> final
                     if search_source == "db" and retry_count >= 1:
                         logger.info("DB 검색 후 재시도 - history_search로 이동")
                         return "history_search"
                     elif search_source == "history":
-                        logger.info("History 검색 후 - final_answer로 이동")
-                        return "final_answer"
+                        logger.info("History 검색 후 - issue_search로 이동")
+                        return "issue_search"
                     else:
                         logger.info("쿼리 재작성으로 이동")
                         return "rewrite"
@@ -430,7 +445,110 @@ class CorrectiveRAGWorkflow:
             
         except Exception as e:
             logger.error(f"재시도 결정 실패: {e}")
-            return "final_answer"  # 에러가 발생해도 final_answer로 이동
+            return "final_answer"
+    
+    def _issue_search_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
+        """GitHub Issue 검색 노드"""
+        try:
+            logger.info("GitHub Issue 검색 시작")
+            
+            # GitHub Issue Helper 초기화
+            from model.github_issue_helper import GitHubIssueHelper
+            
+            # 현재 선택된 repository 정보 가져오기
+            current_repo = self.vector_store.repository_url if hasattr(self.vector_store, 'repository_url') else None
+            logger.info(f"현재 repository: {current_repo}")
+            
+            if not current_repo:
+                logger.warning("Repository 정보가 없어 이슈 검색을 건너뜁니다.")
+                return {
+                    "similar_issues": [],
+                    "issue_search_performed": True
+                }
+            
+            # GitHub Issue Helper 초기화
+            issue_helper = GitHubIssueHelper(current_repo)
+            
+            # 유사한 이슈 검색
+            similar_issues = issue_helper.search_similar_issues(
+                question=state["user_question"],
+                max_results=5
+            )
+            
+            logger.info(f"유사한 이슈 {len(similar_issues)}개 발견")
+            
+            # 답변 가능한 이슈 찾기
+            answer_available = False
+            for issue in similar_issues:
+                if issue.get('state') == 'closed':
+                    answer = issue_helper.get_issue_answer(issue)
+                    if answer:
+                        issue['answer'] = answer
+                        answer_available = True
+                        logger.info(f"Closed 이슈에서 답변 발견: #{issue.get('number')}")
+                        break
+            
+            return {
+                "similar_issues": similar_issues,
+                "issue_search_performed": True
+            }
+            
+        except Exception as e:
+            logger.error(f"GitHub Issue 검색 실패: {e}")
+            return {
+                "similar_issues": [],
+                "issue_search_performed": True
+            }  # 에러가 발생해도 final_answer로 이동
+    
+    def _generate_answer_from_issues(self, question: str, similar_issues: List[Dict[str, Any]]) -> str:
+        """이슈 검색 결과에서 답변 생성"""
+        try:
+            logger.info("이슈 검색 결과에서 답변 생성 중")
+            
+            # 답변이 있는 closed 이슈 찾기
+            answered_issues = []
+            for issue in similar_issues:
+                if issue.get('state') == 'closed' and issue.get('answer'):
+                    answered_issues.append(issue)
+            
+            if answered_issues:
+                # 가장 유사한 이슈의 답변 사용
+                best_issue = answered_issues[0]
+                answer = f"""🔍 유사한 질문이 이미 해결되었습니다!
+
+**관련 이슈:** [#{best_issue.get('number')}]({best_issue.get('url')}) - {best_issue.get('title')}
+
+**해결 방법:**
+{best_issue.get('answer')}
+
+더 자세한 내용은 [이슈 링크]({best_issue.get('url')})를 확인해보세요."""
+                
+                logger.info(f"Closed 이슈에서 답변 생성: #{best_issue.get('number')}")
+                return answer
+            
+            # 답변이 없는 경우 유사한 이슈 안내
+            open_issues = [issue for issue in similar_issues if issue.get('state') == 'open']
+            if open_issues:
+                issue_links = []
+                for issue in open_issues[:3]:  # 최대 3개
+                    issue_links.append(f"- [#{issue.get('number')}]({issue.get('url')}) - {issue.get('title')}")
+                
+                answer = f"""🔍 유사한 질문이 이미 GitHub에서 논의되고 있습니다!
+
+**관련 이슈들:**
+{chr(10).join(issue_links)}
+
+이 이슈들을 확인해보시거나, 새로운 이슈를 생성해주세요."""
+                
+                logger.info(f"Open 이슈 안내: {len(open_issues)}개")
+                return answer
+            
+            # 답변이나 관련 이슈가 없는 경우
+            return "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
+            
+        except Exception as e:
+            logger.error(f"이슈 답변 생성 실패: {e}")
+            return "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
     
     def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
@@ -494,7 +612,9 @@ class CorrectiveRAGWorkflow:
                 "error_message": result.get("error_message", ""),
                 "similar_questions": result.get("similar_questions", []),
                 "answer_quality_score": result.get("answer_quality_score", 0.0),
-                "github_issue_suggestion": result.get("github_issue_suggestion")
+                "github_issue_suggestion": result.get("github_issue_suggestion"),
+                "similar_issues": result.get("similar_issues", []),
+                "issue_search_performed": result.get("issue_search_performed", False)
             }
             
         except Exception as e:
