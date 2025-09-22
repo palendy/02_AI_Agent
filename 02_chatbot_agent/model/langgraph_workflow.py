@@ -121,28 +121,32 @@ class CorrectiveRAGWorkflow:
     def _retrieve_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """문서 검색 노드"""
         try:
-            logger.info(f"문서 검색: {state['current_query']}")
+            search_source = state.get("search_source", "db")
+            query = state['current_query']
+            logger.info(f"🔍 [RETRIEVE] {search_source}에서 검색 시작: '{query}'")
             
-            if state.get("search_source", "db") == "db":
+            if search_source == "db":
                 # 벡터 스토어에서 검색
                 results = self.vector_store.similarity_search(
-                    state["current_query"],
+                    query,
                     k=self.config.max_search_results
                 )
+                logger.info(f"✅ [RETRIEVE] DB 검색 성공: {len(results)}개 문서 발견")
             else:
                 # 채팅 히스토리 검색
                 results = self.rag_agent.search_chat_history(
-                    state["current_query"],
+                    query,
                     k=self.config.max_search_results
                 )
+                logger.info(f"✅ [RETRIEVE] History 검색 성공: {len(results)}개 문서 발견")
             
             return {
                 "search_results": results,
-                "search_source": state.get("search_source", "db")
+                "search_source": search_source
             }
             
         except Exception as e:
-            logger.error(f"문서 검색 실패: {e}")
+            logger.error(f"❌ [RETRIEVE] 검색 실패: {e}")
             return {
                 "search_results": [],
                 "error_message": f"문서 검색 실패: {str(e)}"
@@ -151,26 +155,38 @@ class CorrectiveRAGWorkflow:
     def _grade_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """관련성 평가 노드"""
         try:
-            if not state.get("search_results"):
+            search_results = state.get("search_results", [])
+            question = state["user_question"]
+            
+            if not search_results:
+                logger.warning(f"⚠️ [GRADE] 검색 결과 없음 - 관련성 평가 불가")
                 return {
                     "docs_are_relevant": False,
                     "relevance_score": 0.0,
                     "error_message": "검색 결과가 없습니다."
                 }
             
+            logger.info(f"📊 [GRADE] {len(search_results)}개 문서의 관련성 평가 시작")
+            
             # 관련성 평가
-            grade_result = self.rag_agent.grade_relevance(
-                state["user_question"],
-                state["search_results"]
-            )
+            grade_result = self.rag_agent.grade_relevance(question, search_results)
+            
+            is_relevant = grade_result["docs_are_relevant"]
+            score = grade_result["relevance_score"]
+            threshold = self.config.relevance_threshold
+            
+            if is_relevant:
+                logger.info(f"✅ [GRADE] 관련성 통과: {score:.3f} >= {threshold}")
+            else:
+                logger.warning(f"❌ [GRADE] 관련성 부족: {score:.3f} < {threshold}")
             
             return {
-                "docs_are_relevant": grade_result["docs_are_relevant"],
-                "relevance_score": grade_result["relevance_score"]
+                "docs_are_relevant": is_relevant,
+                "relevance_score": score
             }
             
         except Exception as e:
-            logger.error(f"관련성 평가 실패: {e}")
+            logger.error(f"❌ [GRADE] 관련성 평가 실패: {e}")
             return {
                 "docs_are_relevant": False,
                 "relevance_score": 0.0,
@@ -180,17 +196,17 @@ class CorrectiveRAGWorkflow:
     def _generate_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """답변 생성 노드"""
         try:
-            logger.info("답변 생성 중")
+            question = state["user_question"]
+            docs_count = len(state.get("search_results", []))
+            logger.info(f"🤖 [GENERATE] 답변 생성 시작: {docs_count}개 문서 사용")
             
-            answer = self.rag_agent.generate_answer(
-                state["user_question"],
-                state["search_results"]
-            )
+            answer = self.rag_agent.generate_answer(question, state["search_results"])
             
+            logger.info(f"✅ [GENERATE] 답변 생성 완료: {len(answer)}자")
             return {"final_answer": answer}
             
         except Exception as e:
-            logger.error(f"답변 생성 실패: {e}")
+            logger.error(f"❌ [GENERATE] 답변 생성 실패: {e}")
             return {
                 "final_answer": f"답변 생성 중 오류가 발생했습니다: {str(e)}"
             }
@@ -198,17 +214,21 @@ class CorrectiveRAGWorkflow:
     def _rewrite_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """쿼리 재작성 노드"""
         try:
-            logger.info("쿼리 재작성 중")
-            
-            # 재시도 횟수 증가
+            old_query = state["current_query"]
             retry_count = state.get("retry_count", 0) + 1
+            relevance_score = state.get('relevance_score', 0)
+            
+            logger.info(f"✏️ [REWRITE] 쿼리 재작성 시작 (시도 {retry_count}회): '{old_query}'")
+            logger.info(f"📉 [REWRITE] 관련성 점수 부족으로 인한 재작성: {relevance_score:.3f}")
             
             # 쿼리 재작성
             new_query = self.rag_agent.rewrite_query(
                 state["user_question"],
-                state["current_query"],
-                f"관련성 점수 부족: {state.get('relevance_score', 0):.3f}"
+                old_query,
+                f"관련성 점수 부족: {relevance_score:.3f}"
             )
+            
+            logger.info(f"✅ [REWRITE] 쿼리 재작성 완료: '{new_query}'")
             
             return {
                 "current_query": new_query,
@@ -217,7 +237,7 @@ class CorrectiveRAGWorkflow:
             }
             
         except Exception as e:
-            logger.error(f"쿼리 재작성 실패: {e}")
+            logger.error(f"❌ [REWRITE] 쿼리 재작성 실패: {e}")
             return {
                 "error_message": f"쿼리 재작성 실패: {str(e)}"
             }
@@ -225,21 +245,23 @@ class CorrectiveRAGWorkflow:
     def _history_search_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """채팅 히스토리 검색 노드"""
         try:
-            logger.info("채팅 히스토리 검색 중")
+            query = state["current_query"]
+            logger.info(f"📚 [HISTORY] 채팅 히스토리 검색 시작: '{query}'")
             
             # 채팅 히스토리 검색 실행
             results = self.rag_agent.search_chat_history(
-                state["current_query"],
+                query,
                 k=self.config.max_search_results
             )
             
+            logger.info(f"✅ [HISTORY] 히스토리 검색 완료: {len(results)}개 결과")
             return {
                 "search_results": results,
                 "search_source": "history"
             }
             
         except Exception as e:
-            logger.error(f"채팅 히스토리 검색 실패: {e}")
+            logger.error(f"❌ [HISTORY] 채팅 히스토리 검색 실패: {e}")
             return {
                 "search_results": [],
                 "error_message": f"채팅 히스토리 검색 실패: {str(e)}"
@@ -248,30 +270,31 @@ class CorrectiveRAGWorkflow:
     def _final_answer_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """최종 답변 노드"""
         try:
-            logger.info("최종 답변 생성 중")
-            
-            # 이슈 검색 결과 확인
+            question = state["user_question"]
+            search_results = state.get("search_results", [])
             similar_issues = state.get("similar_issues", [])
             issue_search_performed = state.get("issue_search_performed", False)
             
+            logger.info(f"🏁 [FINAL] 최종 답변 생성 시작")
+            logger.info(f"📊 [FINAL] 상태: 검색결과={len(search_results)}개, 이슈={len(similar_issues)}개, 이슈검색={issue_search_performed}")
+            
             # 답변 생성
-            if state.get("search_results"):
-                answer = self.rag_agent.generate_answer(
-                    state["user_question"],
-                    state["search_results"]
-                )
+            if search_results:
+                logger.info(f"📝 [FINAL] 검색 결과로 답변 생성")
+                answer = self.rag_agent.generate_answer(question, search_results)
             elif issue_search_performed and similar_issues:
-                # 이슈 검색 결과가 있는 경우
-                answer = self._generate_answer_from_issues(state["user_question"], similar_issues)
+                logger.info(f"🔍 [FINAL] 이슈 검색 결과로 답변 생성")
+                answer = self._generate_answer_from_issues(question, similar_issues)
             else:
+                logger.warning(f"⚠️ [FINAL] 검색 결과 없음 - 기본 답변 생성")
                 answer = "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
                 # 검색 결과가 없는 경우 에러 메시지 설정
                 if not state.get("error_message"):
                     state["error_message"] = "검색 결과가 없습니다."
             
             # 답변 품질 평가
-            quality_score = self._evaluate_answer_quality(state["user_question"], answer)
-            logger.info(f"답변 품질 점수: {quality_score:.3f}")
+            quality_score = self._evaluate_answer_quality(question, answer)
+            logger.info(f"📈 [FINAL] 답변 품질 점수: {quality_score:.3f}")
             
             # GitHub Issue 제안 여부 결정
             # 이슈 검색 결과가 있으면 GitHub Issue 제안하지 않음
@@ -286,11 +309,11 @@ class CorrectiveRAGWorkflow:
                 )
             )
             
-            logger.info(f"GitHub Issue 제안 여부: {should_suggest_issue}")
-            logger.info(f"유사한 이슈 있음: {has_similar_issues}")
-            logger.info(f"검색 결과 있음: {bool(state.get('search_results'))}")
-            logger.info(f"에러 메시지: {state.get('error_message')}")
-            logger.info(f"답변 내용: {answer[:100]}...")
+            logger.info(f"🔧 [FINAL] GitHub Issue 제안 여부: {should_suggest_issue}")
+            logger.info(f"📋 [FINAL] 유사한 이슈 있음: {has_similar_issues}")
+            logger.info(f"📄 [FINAL] 검색 결과 있음: {bool(state.get('search_results'))}")
+            logger.info(f"❌ [FINAL] 에러 메시지: {state.get('error_message')}")
+            logger.info(f"💬 [FINAL] 답변 미리보기: {answer[:100]}...")
             
             # 상태 업데이트
             state["final_answer"] = answer
@@ -298,13 +321,13 @@ class CorrectiveRAGWorkflow:
             
             # GitHub Issue 제안이 필요한 경우
             if should_suggest_issue:
-                logger.info("GitHub Issue 제안 생성 시작")
+                logger.info("🔧 [FINAL] GitHub Issue 제안 생성 시작")
                 try:
                     from model.github_issue_helper import GitHubIssueHelper
                     
                     # 현재 선택된 repository 정보 가져오기
                     current_repo = self.vector_store.repository_url if hasattr(self.vector_store, 'repository_url') else None
-                    logger.info(f"현재 repository: {current_repo}")
+                    logger.info(f"📁 [FINAL] 현재 repository: {current_repo}")
                     
                     # GitHub Issue Helper 초기화
                     issue_helper = GitHubIssueHelper(current_repo)
@@ -328,9 +351,10 @@ class CorrectiveRAGWorkflow:
                     )
                     
                     state["github_issue_suggestion"] = issue_suggestion
+                    logger.info(f"✅ [FINAL] GitHub Issue 제안 생성 완료")
                     
                 except Exception as e:
-                    logger.error(f"GitHub Issue 제안 생성 실패: {e}")
+                    logger.error(f"❌ [FINAL] GitHub Issue 제안 생성 실패: {e}")
                     state["github_issue_suggestion"] = {
                         "suggested": False,
                         "message": f"Issue 제안 생성 중 오류: {str(e)}"
@@ -339,7 +363,7 @@ class CorrectiveRAGWorkflow:
             return state
             
         except Exception as e:
-            logger.error(f"최종 답변 생성 실패: {e}")
+            logger.error(f"❌ [FINAL] 최종 답변 생성 실패: {e}")
             return {
                 "final_answer": f"최종 답변 생성 중 오류가 발생했습니다: {str(e)}",
                 "answer_quality_score": 0.0,
@@ -410,62 +434,59 @@ class CorrectiveRAGWorkflow:
     def _should_retry(self, state: CorrectiveRAGState) -> str:
         """재시도 여부 결정"""
         try:
-            logger.info(f"_should_retry 호출됨 - 상태: {state}")
-            
-            # 최대 재시도 횟수 도달
             retry_count = state.get("retry_count", 0)
             max_retries = state.get("max_retries", self.config.max_retries)
-            
-            if retry_count >= max_retries:
-                logger.info(f"최대 재시도 횟수 도달 ({max_retries}회) - final_answer로 이동")
-                return "final_answer"
-            
-            # 관련성 평가 결과 확인
             docs_are_relevant = state.get("docs_are_relevant", False)
             relevance_score = state.get("relevance_score", 0.0)
             search_source = state.get("search_source", "unknown")
             
-            logger.info(f"관련성 평가 결과: docs_are_relevant={docs_are_relevant}, relevance_score={relevance_score:.3f}, search_source={search_source}")
+            logger.info(f"🤔 [DECISION] 재시도 결정: 시도={retry_count}/{max_retries}, 관련성={docs_are_relevant}, 점수={relevance_score:.3f}, 소스={search_source}")
+            
+            # 최대 재시도 횟수 도달
+            if retry_count >= max_retries:
+                logger.info(f"🛑 [DECISION] 최대 재시도 횟수 도달 ({max_retries}회) - final_answer로 이동")
+                return "final_answer"
             
             if not docs_are_relevant:
                 threshold = self.config.relevance_threshold
                 
                 if relevance_score < threshold:
-                    logger.info(f"관련성 부족 ({relevance_score:.3f} < {threshold}) - 재시도")
+                    logger.warning(f"📉 [DECISION] 관련성 부족 ({relevance_score:.3f} < {threshold}) - 재시도")
                     
                     # 검색 소스 전환: db -> history -> issue_search -> final
                     if search_source == "db" and retry_count >= 1:
-                        logger.info("DB 검색 후 재시도 - history_search로 이동")
+                        logger.info("🔄 [DECISION] DB 검색 후 재시도 - history_search로 이동")
                         return "history_search"
                     elif search_source == "history":
-                        logger.info("History 검색 후 - issue_search로 이동")
+                        logger.info("🔄 [DECISION] History 검색 후 - issue_search로 이동")
                         return "issue_search"
                     else:
-                        logger.info("쿼리 재작성으로 이동")
+                        logger.info("✏️ [DECISION] 쿼리 재작성으로 이동")
                         return "rewrite"
             
             # 관련성 통과
-            logger.info(f"관련성 통과 ({relevance_score:.3f}) - generate로 이동")
+            logger.info(f"✅ [DECISION] 관련성 통과 ({relevance_score:.3f}) - generate로 이동")
             return "generate"
             
         except Exception as e:
-            logger.error(f"재시도 결정 실패: {e}")
+            logger.error(f"❌ [DECISION] 재시도 결정 실패: {e}")
             return "final_answer"
     
     def _issue_search_node(self, state: CorrectiveRAGState) -> Dict[str, Any]:
         """GitHub Issue 검색 노드"""
         try:
-            logger.info("GitHub Issue 검색 시작")
+            question = state["user_question"]
+            logger.info(f"🔍 [ISSUE] GitHub Issue 검색 시작: '{question}'")
             
             # GitHub Issue Helper 초기화
             from model.github_issue_helper import GitHubIssueHelper
             
             # 현재 선택된 repository 정보 가져오기
             current_repo = self.vector_store.repository_url if hasattr(self.vector_store, 'repository_url') else None
-            logger.info(f"현재 repository: {current_repo}")
+            logger.info(f"📁 [ISSUE] 현재 repository: {current_repo}")
             
             if not current_repo:
-                logger.warning("Repository 정보가 없어 이슈 검색을 건너뜁니다.")
+                logger.warning("⚠️ [ISSUE] Repository 정보가 없어 이슈 검색을 건너뜁니다.")
                 return {
                     "similar_issues": [],
                     "issue_search_performed": True
@@ -476,11 +497,11 @@ class CorrectiveRAGWorkflow:
             
             # 유사한 이슈 검색
             similar_issues = issue_helper.search_similar_issues(
-                question=state["user_question"],
+                question=question,
                 max_results=5
             )
             
-            logger.info(f"유사한 이슈 {len(similar_issues)}개 발견")
+            logger.info(f"✅ [ISSUE] 유사한 이슈 {len(similar_issues)}개 발견")
             
             # 답변 가능한 이슈 찾기
             answer_available = False
@@ -490,7 +511,7 @@ class CorrectiveRAGWorkflow:
                     if answer:
                         issue['answer'] = answer
                         answer_available = True
-                        logger.info(f"Closed 이슈에서 답변 발견: #{issue.get('number')}")
+                        logger.info(f"💡 [ISSUE] Closed 이슈에서 답변 발견: #{issue.get('number')}")
                         break
             
             return {
@@ -499,7 +520,7 @@ class CorrectiveRAGWorkflow:
             }
             
         except Exception as e:
-            logger.error(f"GitHub Issue 검색 실패: {e}")
+            logger.error(f"❌ [ISSUE] GitHub Issue 검색 실패: {e}")
             return {
                 "similar_issues": [],
                 "issue_search_performed": True
@@ -508,7 +529,7 @@ class CorrectiveRAGWorkflow:
     def _generate_answer_from_issues(self, question: str, similar_issues: List[Dict[str, Any]]) -> str:
         """이슈 검색 결과에서 답변 생성"""
         try:
-            logger.info("이슈 검색 결과에서 답변 생성 중")
+            logger.info(f"🔍 [ISSUE-ANSWER] 이슈 검색 결과에서 답변 생성 시작: {len(similar_issues)}개 이슈")
             
             # 답변이 있는 closed 이슈 찾기
             answered_issues = []
@@ -516,27 +537,40 @@ class CorrectiveRAGWorkflow:
                 if issue.get('state') == 'closed' and issue.get('answer'):
                     answered_issues.append(issue)
             
+            logger.info(f"📊 [ISSUE-ANSWER] 답변이 있는 Closed 이슈: {len(answered_issues)}개")
+            
             if answered_issues:
                 # 가장 유사한 이슈의 답변 사용
                 best_issue = answered_issues[0]
+                issue_number = best_issue.get('number')
+                issue_title = best_issue.get('title')
+                issue_url = best_issue.get('url')
+                
+                logger.info(f"✅ [ISSUE-ANSWER] Closed 이슈에서 답변 발견: #{issue_number} - {issue_title}")
+                logger.info(f"🔗 [ISSUE-ANSWER] 이슈 URL: {issue_url}")
+                
                 answer = f"""🔍 유사한 질문이 이미 해결되었습니다!
 
-**관련 이슈:** [#{best_issue.get('number')}]({best_issue.get('url')}) - {best_issue.get('title')}
+**관련 이슈:** [#{issue_number}]({issue_url}) - {issue_title}
 
 **해결 방법:**
 {best_issue.get('answer')}
 
-더 자세한 내용은 [이슈 링크]({best_issue.get('url')})를 확인해보세요."""
+더 자세한 내용은 [이슈 링크]({issue_url})를 확인해보세요."""
                 
-                logger.info(f"Closed 이슈에서 답변 생성: #{best_issue.get('number')}")
+                logger.info(f"🎉 [ISSUE-ANSWER] 답변 생성 완료: #{issue_number}")
                 return answer
             
             # 답변이 없는 경우 유사한 이슈 안내
             open_issues = [issue for issue in similar_issues if issue.get('state') == 'open']
+            logger.info(f"📊 [ISSUE-ANSWER] Open 이슈: {len(open_issues)}개")
+            
             if open_issues:
                 issue_links = []
                 for issue in open_issues[:3]:  # 최대 3개
                     issue_links.append(f"- [#{issue.get('number')}]({issue.get('url')}) - {issue.get('title')}")
+                
+                logger.info(f"🔗 [ISSUE-ANSWER] Open 이슈 링크 생성: {len(issue_links)}개")
                 
                 answer = f"""🔍 유사한 질문이 이미 GitHub에서 논의되고 있습니다!
 
@@ -545,14 +579,15 @@ class CorrectiveRAGWorkflow:
 
 이 이슈들을 확인해보시거나, 새로운 이슈를 생성해주세요."""
                 
-                logger.info(f"Open 이슈 안내: {len(open_issues)}개")
+                logger.info(f"ℹ️ [ISSUE-ANSWER] Open 이슈 안내 답변 생성: {len(open_issues)}개")
                 return answer
             
             # 답변이나 관련 이슈가 없는 경우
+            logger.warning(f"⚠️ [ISSUE-ANSWER] 답변이나 관련 이슈가 없음")
             return "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
             
         except Exception as e:
-            logger.error(f"이슈 답변 생성 실패: {e}")
+            logger.error(f"❌ [ISSUE-ANSWER] 이슈 답변 생성 실패: {e}")
             return "죄송합니다. 관련 정보를 찾을 수 없어 답변할 수 없습니다."
     
     def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:

@@ -260,45 +260,55 @@ class GitHubIssueHelper:
         """
         try:
             if not self.github_token:
-                logger.warning("GitHub 토큰이 없어 이슈 검색을 할 수 없습니다.")
+                logger.warning("🔑 [GITHUB] GitHub 토큰이 없어 이슈 검색을 할 수 없습니다.")
                 return []
             
-            logger.info(f"Hybrid Search + Cross-Encoder Re-ranking 시작: {question}")
+            logger.info(f"🔍 [GITHUB] Hybrid Search + Cross-Encoder Re-ranking 시작: '{question}'")
             
             # 1단계: GitHub API로 후보 이슈들 수집
+            logger.info(f"📡 [GITHUB] 1단계: GitHub API로 후보 이슈 수집 시작")
             candidate_issues = self._get_candidate_issues(question, max_results * 3)
             
             if not candidate_issues:
-                logger.info("후보 이슈가 없습니다.")
+                logger.warning("⚠️ [GITHUB] 후보 이슈가 없습니다.")
                 return []
             
+            logger.info(f"✅ [GITHUB] 후보 이슈 {len(candidate_issues)}개 수집 완료")
+            
             # 2단계: Hybrid Search (BM25 + Dense Embedding)
+            logger.info(f"🔬 [GITHUB] 2단계: Hybrid Search (BM25 + Dense Embedding) 시작")
             hybrid_scores = self._calculate_hybrid_scores(question, candidate_issues)
             
             # 3단계: Cross-Encoder Re-ranking
+            logger.info(f"🎯 [GITHUB] 3단계: Cross-Encoder Re-ranking 시작")
             reranked_issues = self._cross_encoder_rerank(question, hybrid_scores, max_results)
             
-            logger.info(f"Hybrid Search + Re-ranking으로 유사한 이슈 {len(reranked_issues)}개 발견")
+            logger.info(f"🎉 [GITHUB] Hybrid Search + Re-ranking으로 유사한 이슈 {len(reranked_issues)}개 발견")
             return reranked_issues
                 
         except Exception as e:
-            logger.error(f"Hybrid Search + Re-ranking 실패: {e}")
+            logger.error(f"❌ [GITHUB] Hybrid Search + Re-ranking 실패: {e}")
             return []
     
     def _get_candidate_issues(self, question: str, max_candidates: int = 15) -> List[Dict[str, Any]]:
         """GitHub API로 후보 이슈들을 가져오기"""
         try:
             # 검색 쿼리 생성
+            logger.info(f"🔍 [GITHUB] 검색 쿼리 생성 중")
             search_queries = self._generate_search_queries(question)
+            logger.info(f"📝 [GITHUB] 생성된 쿼리: {search_queries[:3]}")
             
             all_issues = []
             seen_issues = set()
             
-            for query in search_queries[:3]:  # 최대 3개 쿼리만 사용
+            for i, query in enumerate(search_queries[:3]):  # 최대 3개 쿼리만 사용
                 if len(all_issues) >= max_candidates:
+                    logger.info(f"🛑 [GITHUB] 최대 후보 수 도달 ({max_candidates}개) - 검색 중단")
                     break
                     
+                logger.info(f"📡 [GITHUB] 쿼리 {i+1}/3 실행: '{query}'")
                 issues = self._search_github_api(query, max_candidates // len(search_queries) + 1)
+                logger.info(f"📊 [GITHUB] 쿼리 {i+1} 결과: {len(issues)}개 이슈")
                 
                 for issue in issues:
                     issue_id = issue.get('number')
@@ -306,11 +316,11 @@ class GitHubIssueHelper:
                         all_issues.append(issue)
                         seen_issues.add(issue_id)
             
-            logger.info(f"후보 이슈 {len(all_issues)}개 수집")
+            logger.info(f"✅ [GITHUB] 후보 이슈 {len(all_issues)}개 수집 완료")
             return all_issues
             
         except Exception as e:
-            logger.error(f"후보 이슈 검색 실패: {e}")
+            logger.error(f"❌ [GITHUB] 후보 이슈 검색 실패: {e}")
             return []
     
     def _generate_search_queries(self, question: str) -> List[str]:
@@ -424,28 +434,35 @@ class GitHubIssueHelper:
         """Hybrid Search (BM25 + Dense Embedding)"""
         try:
             if not candidate_issues:
+                logger.warning("⚠️ [GITHUB] 후보 이슈가 없어 Hybrid Search를 건너뜁니다.")
                 return []
             
-            logger.info(f"Hybrid Search 계산 시작: {len(candidate_issues)}개 이슈")
+            logger.info(f"🔬 [GITHUB] Hybrid Search 계산 시작: {len(candidate_issues)}개 이슈")
             
             # 질문 전처리
+            logger.info(f"🔧 [GITHUB] 질문 전처리 중")
             question_tokens = self._preprocess_text(question)
+            logger.info(f"📝 [GITHUB] 전처리된 토큰: {len(question_tokens)}개")
             
             # 모든 이슈 텍스트 수집 (BM25 계산용)
+            logger.info(f"📄 [GITHUB] 이슈 텍스트 수집 중")
             all_issue_texts = []
             for issue in candidate_issues:
                 issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:1000]}"
                 all_issue_texts.append(issue_text)
             
             # 각 이슈에 대해 BM25 + Dense Embedding 스코어 계산
+            logger.info(f"🧮 [GITHUB] 각 이슈별 스코어 계산 시작")
             for i, issue in enumerate(candidate_issues):
                 issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:1000]}"
                 issue_tokens = self._preprocess_text(issue_text)
                 
                 # 1. BM25 스코어 계산
+                logger.debug(f"🔢 [GITHUB] 이슈 {i+1}/{len(candidate_issues)}: BM25 스코어 계산")
                 bm25_score = self._calculate_bm25_score(question_tokens, issue_tokens, all_issue_texts)
                 
                 # 2. Dense Embedding 스코어 계산
+                logger.debug(f"🧠 [GITHUB] 이슈 {i+1}/{len(candidate_issues)}: Dense Embedding 스코어 계산")
                 dense_score = self._calculate_dense_score(question, issue_text)
                 
                 # 3. Hybrid 스코어 계산 (BM25 60% + Dense 40%)
@@ -456,15 +473,18 @@ class GitHubIssueHelper:
                 issue['dense_score'] = dense_score
                 issue['hybrid_score'] = hybrid_score
                 issue['similarity_score'] = hybrid_score  # 기존 호환성을 위해 유지
+                
+                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: BM25={bm25_score:.3f}, Dense={dense_score:.3f}, Hybrid={hybrid_score:.3f}")
             
             # Hybrid 스코어 순으로 정렬
+            logger.info(f"🔄 [GITHUB] Hybrid 스코어 순으로 정렬 중")
             candidate_issues.sort(key=lambda x: x['hybrid_score'], reverse=True)
             
-            logger.info(f"Hybrid Search 완료: {len(candidate_issues)}개 이슈")
+            logger.info(f"✅ [GITHUB] Hybrid Search 완료: {len(candidate_issues)}개 이슈")
             return candidate_issues
             
         except Exception as e:
-            logger.error(f"Hybrid Search 실패: {e}")
+            logger.error(f"❌ [GITHUB] Hybrid Search 실패: {e}")
             return candidate_issues
     
     def _preprocess_text(self, text: str) -> List[str]:
@@ -530,7 +550,7 @@ class GitHubIssueHelper:
             return score
             
         except Exception as e:
-            logger.error(f"BM25 스코어 계산 실패: {e}")
+            logger.error(f"❌ [GITHUB] BM25 스코어 계산 실패: {e}")
             return 0.0
     
     def _calculate_dense_score(self, question: str, issue_text: str) -> float:
@@ -554,25 +574,28 @@ class GitHubIssueHelper:
             return float(similarity)
             
         except Exception as e:
-            logger.error(f"Dense Embedding 스코어 계산 실패: {e}")
+            logger.error(f"❌ [GITHUB] Dense Embedding 스코어 계산 실패: {e}")
             return 0.0
     
     def _cross_encoder_rerank(self, question: str, hybrid_scores: List[Dict[str, Any]], max_results: int) -> List[Dict[str, Any]]:
         """Cross-Encoder Re-ranking"""
         try:
             if not hybrid_scores:
+                logger.warning("⚠️ [GITHUB] Hybrid 스코어가 없어 Cross-Encoder Re-ranking을 건너뜁니다.")
                 return []
             
-            logger.info(f"Cross-Encoder Re-ranking 시작: {len(hybrid_scores)}개 이슈")
+            logger.info(f"🎯 [GITHUB] Cross-Encoder Re-ranking 시작: {len(hybrid_scores)}개 이슈")
             
             # 상위 이슈들만 Re-ranking (성능 최적화)
             top_issues = hybrid_scores[:min(len(hybrid_scores), max_results * 2)]
+            logger.info(f"🔝 [GITHUB] 상위 {len(top_issues)}개 이슈로 Re-ranking 수행")
             
             # Cross-Encoder로 Re-ranking
             reranked_issues = []
-            for issue in top_issues:
+            for i, issue in enumerate(top_issues):
                 issue_text = f"{issue.get('title', '')} {issue.get('body', '')[:500]}"
                 
+                logger.debug(f"🎯 [GITHUB] 이슈 {i+1}/{len(top_issues)}: Cross-Encoder 점수 계산")
                 # Cross-Encoder 점수 계산
                 cross_score = self.cross_encoder.predict([question, issue_text])
                 
@@ -583,20 +606,23 @@ class GitHubIssueHelper:
                 issue['final_score'] = final_score
                 issue['similarity_score'] = final_score  # 기존 호환성을 위해 유지
                 
+                logger.debug(f"📊 [GITHUB] 이슈 #{issue.get('number')}: Cross={cross_score[0]:.3f}, Final={final_score:.3f}")
                 reranked_issues.append(issue)
             
             # 최종 점수 순으로 정렬
+            logger.info(f"🔄 [GITHUB] 최종 점수 순으로 정렬 중")
             reranked_issues.sort(key=lambda x: x['final_score'], reverse=True)
             
             # 상위 결과만 반환
             result = reranked_issues[:max_results]
             
-            logger.info(f"Cross-Encoder Re-ranking 완료: {len(result)}개 이슈")
+            logger.info(f"✅ [GITHUB] Cross-Encoder Re-ranking 완료: {len(result)}개 이슈")
             return result
             
         except Exception as e:
-            logger.error(f"Cross-Encoder Re-ranking 실패: {e}")
+            logger.error(f"❌ [GITHUB] Cross-Encoder Re-ranking 실패: {e}")
             # 실패시 Hybrid Search 결과 반환
+            logger.info(f"🔄 [GITHUB] Hybrid Search 결과로 대체: {len(hybrid_scores[:max_results])}개 이슈")
             return hybrid_scores[:max_results]
     
     
@@ -611,20 +637,32 @@ class GitHubIssueHelper:
             Optional[str]: 답변 내용 (있다면)
         """
         try:
-            if issue.get('state') != 'closed':
+            issue_number = issue.get('number')
+            issue_state = issue.get('state')
+            
+            logger.info(f"🔍 [GITHUB-ANSWER] 이슈 #{issue_number}에서 답변 추출 시작 (상태: {issue_state})")
+            
+            if issue_state != 'closed':
+                logger.info(f"⚠️ [GITHUB-ANSWER] 이슈 #{issue_number}는 Closed 상태가 아님 - 답변 추출 건너뜀")
                 return None
             
             # 이슈 본문에서 답변 관련 내용 찾기
             body = issue.get('body', '')
             if not body:
+                logger.info(f"⚠️ [GITHUB-ANSWER] 이슈 #{issue_number}에 본문이 없음")
                 return None
+            
+            logger.info(f"📄 [GITHUB-ANSWER] 이슈 #{issue_number} 본문 길이: {len(body)}자")
             
             # 답변 관련 키워드가 있는지 확인
             answer_keywords = ['해결', '답변', '해결방법', '해결책', '방법', '해결됨', '수정됨', '완료', '답변드립니다', '해결되었습니다']
             
             has_answer = any(keyword in body for keyword in answer_keywords)
             if not has_answer:
+                logger.info(f"❌ [GITHUB-ANSWER] 이슈 #{issue_number}에 답변 키워드 없음")
                 return None
+            
+            logger.info(f"✅ [GITHUB-ANSWER] 이슈 #{issue_number}에 답변 키워드 발견")
             
             # 답변 부분 추출 (간단한 버전)
             lines = body.split('\n')
@@ -635,6 +673,7 @@ class GitHubIssueHelper:
                 line = line.strip()
                 if any(keyword in line for keyword in answer_keywords):
                     in_answer_section = True
+                    logger.debug(f"🔑 [GITHUB-ANSWER] 답변 키워드 발견: {line[:50]}...")
                 
                 if in_answer_section and line:
                     answer_lines.append(line)
@@ -644,12 +683,15 @@ class GitHubIssueHelper:
                         break
             
             if answer_lines:
-                return '\n'.join(answer_lines[:10])  # 최대 10줄
+                answer_text = '\n'.join(answer_lines[:10])  # 최대 10줄
+                logger.info(f"🎉 [GITHUB-ANSWER] 이슈 #{issue_number}에서 답변 추출 성공: {len(answer_text)}자")
+                return answer_text
                 
+            logger.warning(f"⚠️ [GITHUB-ANSWER] 이슈 #{issue_number}에서 답변 추출 실패")
             return None
             
         except Exception as e:
-            logger.error(f"이슈 답변 추출 실패: {e}")
+            logger.error(f"❌ [GITHUB-ANSWER] 이슈 #{issue_number} 답변 추출 실패: {e}")
             return None
     
     def get_repository_info(self) -> Dict[str, str]:
