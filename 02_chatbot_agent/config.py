@@ -111,6 +111,11 @@ class Config:
         """데이터베이스 URL"""
         return os.getenv("DATABASE_URL", "sqlite:///chatbot.db")
     
+    @property
+    def chroma_max_size(self) -> int:
+        """ChromaDB 최대 저장 문서 수"""
+        return int(os.getenv("CHROMA_MAX_SIZE", "10000"))
+    
     # 로깅 설정
     @property
     def log_level(self) -> str:
@@ -182,6 +187,7 @@ Config 정보:
 - 청크 크기: {self.chunk_size}
 - 청크 오버랩: {self.chunk_overlap}
 - 데이터베이스: {self.database_url}
+- ChromaDB 최대 크기: {self.chroma_max_size}
 - 로그 레벨: {self.log_level}
 - 서버: {self.host}:{self.port}
 - 디버그: {self.debug}

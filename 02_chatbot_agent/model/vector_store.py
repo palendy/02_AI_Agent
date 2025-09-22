@@ -139,7 +139,7 @@ class DocumentVectorStore:
     
     def add_documents(self, documents: List[Document]) -> List[str]:
         """
-        문서를 벡터 스토어에 추가
+        문서를 벡터 스토어에 추가 (최대 크기 제한 적용)
         
         Args:
             documents: 추가할 문서 목록
@@ -156,11 +156,22 @@ class DocumentVectorStore:
             split_documents = self.text_splitter.split_documents(documents)
             logger.info(f"문서 분할 완료: {len(split_documents)}개 청크")
             
-            # 벡터 스토어에 추가
-            doc_ids = self.vector_store.add_documents(split_documents)
-            logger.info(f"문서 추가 완료: {len(doc_ids)}개 청크")
+            # 현재 컬렉션 크기 확인
+            current_count = self._get_collection_count()
+            max_size = self.config.chroma_max_size
             
-            return doc_ids
+            logger.info(f"현재 컬렉션 크기: {current_count}, 최대 크기: {max_size}")
+            
+            # 최대 크기 초과 시 교체 로직 실행
+            if current_count + len(split_documents) > max_size:
+                logger.info(f"최대 크기 초과 예상 ({current_count + len(split_documents)} > {max_size}) - 교체 로직 실행")
+                self._replace_oldest_documents(split_documents)
+                return [f"replaced_{i}" for i in range(len(split_documents))]
+            else:
+                # 벡터 스토어에 추가
+                doc_ids = self.vector_store.add_documents(split_documents)
+                logger.info(f"문서 추가 완료: {len(doc_ids)}개 청크")
+                return doc_ids
             
         except Exception as e:
             logger.error(f"문서 추가 실패: {e}")
@@ -336,6 +347,70 @@ class DocumentVectorStore:
         except Exception as e:
             logger.error(f"컬렉션 정보 조회 실패: {e}")
             return {}
+    
+    def _get_collection_count(self) -> int:
+        """
+        현재 컬렉션의 문서 수 조회
+        
+        Returns:
+            int: 문서 수
+        """
+        try:
+            collection = self.chroma_client.get_collection(self.collection_name)
+            return collection.count()
+        except Exception as e:
+            logger.error(f"컬렉션 크기 조회 실패: {e}")
+            return 0
+    
+    def _replace_oldest_documents(self, new_documents: List[Document]) -> bool:
+        """
+        가장 오래된 문서들을 새 문서로 교체
+        
+        Args:
+            new_documents: 교체할 새 문서 목록
+            
+        Returns:
+            bool: 교체 성공 여부
+        """
+        try:
+            max_size = self.config.chroma_max_size
+            new_count = len(new_documents)
+            
+            # 교체할 문서 수 계산 (새 문서 수만큼)
+            documents_to_remove = new_count
+            
+            logger.info(f"교체할 문서 수: {documents_to_remove}개")
+            
+            # 컬렉션에서 모든 문서 조회 (ID와 메타데이터 포함)
+            collection = self.chroma_client.get_collection(self.collection_name)
+            
+            # 모든 문서를 가져와서 ID 추출
+            all_docs = collection.get(include=['metadatas'])
+            all_ids = all_docs['ids']
+            
+            if len(all_ids) == 0:
+                logger.info("교체할 기존 문서가 없습니다. 새 문서를 추가합니다.")
+                # 기존 문서가 없으면 새 문서만 추가
+                doc_ids = self.vector_store.add_documents(new_documents)
+                logger.info(f"새 문서 추가 완료: {len(doc_ids)}개")
+                return True
+            
+            # 교체할 문서 ID 선택 (앞에서부터)
+            ids_to_remove = all_ids[:documents_to_remove]
+            
+            # 기존 문서 삭제
+            collection.delete(ids=ids_to_remove)
+            logger.info(f"기존 문서 삭제 완료: {len(ids_to_remove)}개")
+            
+            # 새 문서 추가
+            doc_ids = self.vector_store.add_documents(new_documents)
+            logger.info(f"새 문서 추가 완료: {len(doc_ids)}개")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"문서 교체 실패: {e}")
+            return False
     
     def reset_collection(self) -> bool:
         """

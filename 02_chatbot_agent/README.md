@@ -124,6 +124,9 @@ DEFAULT_MODEL_NAME=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-large
 RELEVANCE_THRESHOLD=0.6
 GITHUB_REPOSITORIES=https://github.com/owner/repo1,https://github.com/owner/repo2
+
+# ChromaDB 설정
+CHROMA_MAX_SIZE=10000  # 최대 저장 문서 수 (기본값: 10000)
 ```
 
 ### 3. **실행**
@@ -228,7 +231,12 @@ EMBEDDING_MODEL = "text-embedding-3-large"   # 임베딩 모델
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Re-ranking
 ```
 
-### 3. **GitHub 설정**
+### 3. **ChromaDB 설정**
+```python
+CHROMA_MAX_SIZE = 10000  # 최대 저장 문서 수
+```
+
+### 4. **GitHub 설정**
 ```python
 GITHUB_REPOSITORIES = "repo1,repo2"  # 검색할 Repository 목록
 GITHUB_TOKEN = "your_token"          # GitHub API 토큰
