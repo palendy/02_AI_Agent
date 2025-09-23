@@ -254,38 +254,109 @@ python main.py
 
 ### 전체 워크플로우 다이어그램
 
+#### 실제 LangGraph 워크플로우 구조 (자동 생성)
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	retrieve(retrieve)
+	grade(grade)
+	generate(generate)
+	rewrite(rewrite)
+	history_search(history_search)
+	issue_search(issue_search)
+	final_answer(final_answer)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> retrieve;
+	grade -.-> final_answer;
+	grade -.-> generate;
+	grade -.-> history_search;
+	grade -.-> issue_search;
+	grade -.-> rewrite;
+	history_search --> grade;
+	issue_search --> final_answer;
+	retrieve --> grade;
+	rewrite --> retrieve;
+	final_answer --> __end__;
+	generate --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+#### 워크플로우 흐름 설명
+
 ```mermaid
 graph TD
-    A[사용자 질문 입력] --> B[rewrite: 쿼리 재작성]
-    B --> C[search: 벡터 스토어 검색]
-    C --> D[grade: 관련성 평가]
+    Start([사용자 질문 입력]) --> Retrieve[🔍 retrieve: 문서 검색]
+    Retrieve --> Grade[📊 grade: 관련성 평가]
     
-    D -->|관련성 부족| E[retry: 재시도 카운터 증가]
-    E -->|retry_count < 3| B
-    E -->|retry_count >= 3| F[history_search: 채팅 히스토리 검색]
+    Grade -->|관련성 통과| Generate[🤖 generate: 답변 생성]
+    Grade -->|관련성 부족| Decision{🤔 재시도 결정}
     
-    D -->|관련성 통과| G[generate: 답변 생성]
-    G --> H[final_answer: 최종 답변]
+    Decision -->|retry_count < max_retries| Rewrite[✏️ rewrite: 쿼리 재작성]
+    Decision -->|retry_count >= max_retries| HistorySearch[📚 history_search: 채팅 히스토리 검색]
     
-    F -->|유사한 질문 발견| I[채팅 히스토리 답변 반환]
-    F -->|유사한 질문 없음| J[issue_search: GitHub Issue 검색]
+    Rewrite --> Retrieve
     
-    J --> K[GitHub Issue 검색 결과]
-    K --> L[final_answer: 이슈 기반 답변]
+    HistorySearch --> Grade2[📊 grade: 관련성 재평가]
+    Grade2 -->|관련성 통과| IssueSearch[🔍 issue_search: GitHub Issue 검색]
+    Grade2 -->|관련성 부족| IssueSearch
     
-    H --> M[사용자 피드백 수집]
-    I --> M
-    L --> M
+    IssueSearch --> FinalAnswer[🏁 final_answer: 최종 답변]
+    Generate --> End([✅ 답변 완료])
+    FinalAnswer --> End
     
-    M -->|만족 + 품질 0.5+| N[채팅 히스토리에 저장]
-    M -->|불만족 또는 품질 부족| O[저장하지 않음]
+    classDef startEnd fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef process fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef decision fill:#fff3e0,stroke:#e65100,stroke-width:2px
     
-    style A fill:#e1f5fe
-    style H fill:#c8e6c9
-    style I fill:#c8e6c9
-    style L fill:#c8e6c9
-    style N fill:#fff3e0
-    style O fill:#ffebee
+    class Start,End startEnd
+    class Retrieve,Grade,Generate,Rewrite,HistorySearch,IssueSearch,FinalAnswer process
+    class Decision,Grade2 decision
+```
+
+### 워크플로우 노드 설명
+
+| 노드 | 설명 | 입력 | 출력 |
+|------|------|------|------|
+| **retrieve** | 문서 검색 | 사용자 질문 | 검색된 문서 목록 |
+| **grade** | 관련성 평가 | 질문 + 문서 | 관련성 점수 + 통과/실패 |
+| **generate** | 답변 생성 | 질문 + 관련 문서 | 최종 답변 |
+| **rewrite** | 쿼리 재작성 | 원본 질문 + 실패 이유 | 개선된 검색 쿼리 |
+| **history_search** | 채팅 히스토리 검색 | 질문 | 유사한 과거 대화 |
+| **issue_search** | GitHub Issue 검색 | 질문 | 관련 GitHub 이슈 |
+| **final_answer** | 최종 답변 생성 | 모든 검색 결과 | 통합된 최종 답변 |
+
+### 의사결정 로직
+
+```python
+def _should_retry(state):
+    retry_count = state.get("retry_count", 0)
+    docs_are_relevant = state.get("docs_are_relevant", False)
+    relevance_score = state.get("relevance_score", 0.0)
+    search_source = state.get("search_source", "unknown")
+    
+    # 최대 재시도 횟수 도달
+    if retry_count >= max_retries:
+        return "final_answer"
+    
+    # 관련성 부족 시 재시도
+    if not docs_are_relevant:
+        if search_source == "db" and retry_count >= 1:
+            return "history_search"
+        elif search_source == "history":
+            return "issue_search"
+        else:
+            return "rewrite"
+    
+    # 관련성 통과 시 답변 생성
+    return "generate"
 ```
 
 ## 🔧 주요 설정
