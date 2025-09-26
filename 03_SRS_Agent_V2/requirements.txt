@@ -1,0 +1,26 @@
+# Core LangChain dependencies
+langchain
+langchain-openai
+langchain-community
+
+# Document processing
+PyPDF2
+python-docx
+markdown
+chardet
+
+# Data processing and utilities
+pydantic
+pydantic-settings
+python-dotenv
+
+# CLI and interface
+click
+rich
+typer
+
+# HTTP requests and validation
+requests
+
+# Additional utilities
+tqdm
